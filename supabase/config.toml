@@ -1,5 +1,0 @@
-project_id = "maparachat"
-
-[functions.maparachat-api]
-verify_jwt = false
-
