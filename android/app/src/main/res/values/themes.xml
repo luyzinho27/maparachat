@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MaparaChat" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/maparachat_primary</item>
+        <item name="colorOnPrimary">@color/maparachat_on_primary</item>
+        <item name="android:statusBarColor">@color/maparachat_primary</item>
+        <item name="android:navigationBarColor">@color/maparachat_primary</item>
+        <item name="android:windowBackground">@color/maparachat_primary</item>
+    </style>
+</resources>
+
