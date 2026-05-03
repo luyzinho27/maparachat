@@ -161,6 +161,7 @@ const btnCameraCancel = document.getElementById('btn-camera-cancel');
 const voiceRecordingStatus = document.getElementById('voice-recording-status');
 const voiceRecordingBanner = document.getElementById('voice-recording-banner');
 const voiceRecordingText = document.getElementById('voice-recording-text');
+const typingIndicator = document.getElementById('typing-indicator');
 const btnVoiceCancel = document.getElementById('btn-voice-cancel');
 const searchUser = document.getElementById('search-user');
 const friendEmailInput = document.getElementById('friend-email');
@@ -7428,6 +7429,9 @@ async function loadMessages(otherUid) {
                     </div>
                 `;
             }
+            ensureVoiceRecordingBanner();
+            ensureTypingIndicator();
+            syncTypingIndicatorVisibility({ state: null });
             hasLoadedInitialSnapshot = true;
         });
     };
@@ -9316,6 +9320,8 @@ function renderMessages(messages, options = {}) {
             </div>
         `;
         ensureVoiceRecordingBanner();
+        ensureTypingIndicator();
+        syncTypingIndicatorVisibility({ keepPinnedToBottom: true });
         return;
     }
 
@@ -9521,6 +9527,7 @@ function renderMessages(messages, options = {}) {
     });
     
     ensureVoiceRecordingBanner();
+    ensureTypingIndicator();
 
     // Scroll para o final
     if (preserveScroll || isMessageSelectionMode) {
@@ -9529,6 +9536,8 @@ function renderMessages(messages, options = {}) {
     } else {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+
+    syncTypingIndicatorVisibility({ keepPinnedToBottom: !preserveScroll && !isMessageSelectionMode });
 }
 
 // Formatar hora
@@ -9710,6 +9719,7 @@ function renderChatPartnerStatus() {
     }
 
     if (!selectedFriendData || selectedUserId !== selectedFriendData.uid) {
+        syncTypingIndicatorVisibility({ state: null });
         chatPartnerStatus.textContent = '';
         chatPartnerStatus.classList.remove('chat-partner-status-activity');
         setOnlineStatusClass(chatPartnerStatus, false);
@@ -9717,7 +9727,9 @@ function renderChatPartnerStatus() {
     }
 
     const effectiveRemoteActivity = remoteTypingState || remoteUserActivityState;
+    syncTypingIndicatorVisibility({ state: effectiveRemoteActivity });
     const showActivity = !!effectiveRemoteActivity
+        && effectiveRemoteActivity !== 'typing'
         && !isFriendBlocked(selectedFriendData.uid);
 
     if (showActivity) {
@@ -10308,6 +10320,50 @@ function ensureVoiceRecordingBanner() {
     }
 }
 
+function ensureTypingIndicator() {
+    if (!typingIndicator || !messagesContainer) return;
+    if (messagesContainer.contains(typingIndicator)) {
+        if (voiceRecordingBanner && messagesContainer.contains(voiceRecordingBanner) && typingIndicator.nextSibling !== voiceRecordingBanner) {
+            messagesContainer.insertBefore(typingIndicator, voiceRecordingBanner);
+        }
+        return;
+    }
+    if (voiceRecordingBanner && messagesContainer.contains(voiceRecordingBanner)) {
+        messagesContainer.insertBefore(typingIndicator, voiceRecordingBanner);
+    } else {
+        messagesContainer.appendChild(typingIndicator);
+    }
+}
+
+function isMessagesContainerNearBottom(threshold = 48) {
+    if (!messagesContainer) return true;
+    const remaining = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight;
+    return remaining <= threshold;
+}
+
+function syncTypingIndicatorVisibility(options = {}) {
+    if (!typingIndicator) return;
+
+    const hasExplicitState = Object.prototype.hasOwnProperty.call(options, 'state');
+    const state = hasExplicitState ? options.state : (remoteTypingState || remoteUserActivityState || null);
+    const keepPinnedToBottom = !!options.keepPinnedToBottom;
+    const wasAtBottom = keepPinnedToBottom ? isMessagesContainerNearBottom() : false;
+
+    const canShow = !!state
+        && state === 'typing'
+        && !!selectedFriendData
+        && !!selectedUserId
+        && selectedUserId === selectedFriendData.uid
+        && !isFriendBlocked(selectedFriendData.uid);
+
+    ensureTypingIndicator();
+    typingIndicator.classList.toggle('hidden', !canShow);
+
+    if (keepPinnedToBottom && wasAtBottom && messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+}
+
 function updateComposerPrimaryAction() {
     if (!btnSend || !btnVoice || !messageInput) return;
 
@@ -10609,6 +10665,8 @@ function clearActiveConversation() {
     }
 
     ensureVoiceRecordingBanner();
+    ensureTypingIndicator();
+    syncTypingIndicatorVisibility({ state: null });
     resetMessageSelectionState();
 
     if (chatPartnerName) chatPartnerName.textContent = 'Selecione um usuário';
@@ -10710,6 +10768,8 @@ function resetChatUI() {
         `;
     }
     ensureVoiceRecordingBanner();
+    ensureTypingIndicator();
+    syncTypingIndicatorVisibility({ state: null });
     remoteUserActivityState = null;
     setChatPartnerActivity(null);
     clearReplyTargetMessage();
@@ -12166,4 +12226,3 @@ btnLogout.addEventListener('click', async () => {
 });
 
 updateRegisterRoleAvailability();
-
