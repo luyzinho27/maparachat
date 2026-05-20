@@ -6,7 +6,7 @@
     <title>MaparaChat - Conectando Pessoas</title>
     <link rel="icon" type="image/png" sizes="32x32" href="images/maparachat_logo.png">
     <link rel="apple-touch-icon" href="images/maparachat_logo.png">
-    <link rel="stylesheet" href="style.css?v=20260411-01">
+    <link rel="stylesheet" href="style.css?v=20260520-android-ui">
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -197,6 +197,12 @@
                     <h3>Conversas</h3>
                 </div>
                 <span id="total-users"></span>
+            </div>
+
+            <div class="desktop-section-tabs" aria-label="Seções">
+                <button class="desktop-section-tab active" type="button" data-desktop-section="chats">Conversas</button>
+                <button class="desktop-section-tab" type="button" data-desktop-section="status">Stories</button>
+                <button class="desktop-section-tab" type="button" data-desktop-section="calls">Ligações</button>
             </div>
             
             <ul id="users-list" class="users-list"></ul>
@@ -695,6 +701,6 @@
     <audio id="remote-audio" autoplay></audio>
 
     <script src="config.js"></script>
-    <script src="script.js?v=20260411-09"></script>
+    <script src="script.js?v=20260520-android-ui"></script>
 </body>
 </html>
