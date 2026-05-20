@@ -190,9 +190,35 @@ const settingsMenu = document.getElementById('settings-menu');
 const sidebarSettings = document.getElementById('sidebar-settings');
 const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
+const mobileHomeCamera = document.getElementById('mobile-home-camera');
+const mobileHomeMenu = document.getElementById('mobile-home-menu');
+const mobileOptionsMenu = document.getElementById('mobile-options-menu');
+const mobileMenuNewGroup = document.getElementById('mobile-menu-new-group');
+const mobileMenuReadAll = document.getElementById('mobile-menu-read-all');
+const mobileMenuSettings = document.getElementById('mobile-menu-settings');
+const mobileContactsScreen = document.getElementById('mobile-contacts-screen');
+const mobileContactsBack = document.getElementById('mobile-contacts-back');
+const mobileContactsCount = document.getElementById('mobile-contacts-count');
+const mobileContactsList = document.getElementById('mobile-contacts-list');
+const mobileNewChat = document.getElementById('mobile-new-chat');
+const mobileNewContact = document.getElementById('mobile-new-contact');
+const mobileStatusScreen = document.getElementById('mobile-status-screen');
+const mobileStatusList = document.getElementById('mobile-status-list');
+const mobileStatusText = document.getElementById('mobile-status-text');
+const mobileStatusMedia = document.getElementById('mobile-status-media');
+const mobileStatusUpload = document.getElementById('mobile-status-upload');
+const mobileCallsScreen = document.getElementById('mobile-calls-screen');
+const mobileCallsList = document.getElementById('mobile-calls-list');
+const mobileNewCall = document.getElementById('mobile-new-call');
+const mobileCallFavorite = document.getElementById('mobile-call-favorite');
+const mobileBottomNav = document.getElementById('mobile-bottom-nav');
+const mobileChatBadge = document.getElementById('mobile-chat-badge');
 const aboutModal = document.getElementById('about-modal');
 const aboutClose = document.getElementById('about-close');
 const aboutContent = document.getElementById('about-content');
+if (app && !app.dataset.mobileView) {
+    app.dataset.mobileView = 'chats';
+}
 const ADMIN_TAB_STORAGE_KEY = 'maparachat_admin_tab';
 const THEME_STORAGE_KEY = 'maparachat_theme';
 const SOUND_NOTIFICATIONS_STORAGE_KEY = 'maparachat_sound_notifications';
@@ -219,6 +245,7 @@ const FRIENDS_CACHE_STORAGE_KEY_PREFIX = 'maparachat_friends_cache_';
 const USERS_CACHE_STORAGE_KEY_PREFIX = 'maparachat_users_cache_';
 const USERS_CACHE_MAX_PHOTO_DATA_LENGTH = 30000;
 const ANDROID_FCM_TOKEN_STORAGE_KEY = 'maparachat_android_fcm_token';
+const MOBILE_STORIES_STORAGE_KEY_PREFIX = 'maparachat_mobile_stories_';
 
 let soundNotificationsEnabled = true;
 let messageToneDataUrl = '';
@@ -237,6 +264,7 @@ let showLastSeenEnabled = true;
 let selectedLanguage = 'pt-BR';
 let pendingAndroidCallAction = null;
 let lastAndroidFcmToken = '';
+let mobileActiveView = 'chats';
 
 // Admin panel
 const chatPanel = document.getElementById('chat-panel');
@@ -6608,6 +6636,11 @@ if (btnAdminPanel) {
 
 if (btnToggleSidebar) {
     btnToggleSidebar.addEventListener('click', () => {
+        if (app && isMobileLayout()) {
+            app.classList.remove('mobile-chat-open');
+            setMobileHomeView('chats');
+            return;
+        }
         setSidebarOpen(true);
     });
 }
@@ -6615,6 +6648,121 @@ if (btnToggleSidebar) {
 if (sidebarOverlay) {
     sidebarOverlay.addEventListener('click', () => {
         setSidebarOpen(false);
+    });
+}
+
+if (mobileBottomNav) {
+    mobileBottomNav.addEventListener('click', (event) => {
+        const button = event.target.closest('.mobile-nav-item');
+        if (!button) return;
+        setMobileHomeView(button.dataset.mobileView || 'chats');
+    });
+}
+
+if (mobileNewChat) {
+    mobileNewChat.addEventListener('click', openMobileContactsScreen);
+}
+
+if (mobileContactsBack) {
+    mobileContactsBack.addEventListener('click', () => setMobileHomeView('chats'));
+}
+
+if (mobileNewContact) {
+    mobileNewContact.addEventListener('click', () => {
+        setMobileHomeView('chats');
+        if (friendEmailInput) friendEmailInput.focus();
+    });
+}
+
+if (mobileHomeCamera) {
+    mobileHomeCamera.addEventListener('click', () => {
+        if (btnCameraQuick && !btnCameraQuick.disabled) {
+            btnCameraQuick.click();
+        } else {
+            openCameraModal('photo');
+        }
+    });
+}
+
+if (mobileHomeMenu) {
+    mobileHomeMenu.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (mobileOptionsMenu) {
+            mobileOptionsMenu.classList.toggle('hidden');
+        }
+    });
+}
+
+if (mobileMenuNewGroup) {
+    mobileMenuNewGroup.addEventListener('click', () => {
+        if (mobileOptionsMenu) mobileOptionsMenu.classList.add('hidden');
+        alert('Criação de grupos será adicionada em uma próxima etapa.');
+    });
+}
+
+if (mobileMenuReadAll) {
+    mobileMenuReadAll.addEventListener('click', () => {
+        if (mobileOptionsMenu) mobileOptionsMenu.classList.add('hidden');
+    });
+}
+
+if (mobileMenuSettings) {
+    mobileMenuSettings.addEventListener('click', () => {
+        if (mobileOptionsMenu) mobileOptionsMenu.classList.add('hidden');
+        alert('Configurações completas continuam disponíveis pelo perfil no app.');
+    });
+}
+
+if (mobileStatusMedia) {
+    mobileStatusMedia.addEventListener('click', () => {
+        if (mobileStatusUpload) mobileStatusUpload.click();
+    });
+}
+
+if (mobileStatusUpload) {
+    mobileStatusUpload.addEventListener('change', async () => {
+        const file = mobileStatusUpload.files?.[0];
+        mobileStatusUpload.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+            alert('Selecione uma imagem ou vídeo curto para o story.');
+            return;
+        }
+        if (file.size > 750 * 1024) {
+            alert('Para publicar no story agora, escolha uma mídia de até 750KB.');
+            return;
+        }
+        const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result || '');
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        addMobileStory({
+            type: 'media',
+            name: file.name,
+            mediaType: file.type,
+            dataUrl
+        });
+    });
+}
+
+if (mobileStatusText) {
+    mobileStatusText.addEventListener('click', () => {
+        const text = prompt('Digite o texto do story:');
+        if (text && text.trim()) {
+            addMobileStory({
+                type: 'text',
+                text: text.trim().slice(0, 180)
+            });
+        }
+    });
+}
+
+if (mobileNewCall) {
+    mobileNewCall.addEventListener('click', () => {
+        const friend = getVisibleFriendUsers().find((item) => !currentUser || item.uid !== currentUser.uid);
+        if (friend) selectUser(friend);
     });
 }
 
@@ -6892,6 +7040,259 @@ function renderFriendUsers() {
         }
     }
     updateFriendSelectionUI();
+    renderMobileCompanionScreens(friends);
+}
+
+function getVisibleFriendUsers() {
+    if (!Array.isArray(allUsersCache)) return [];
+    const friendSet = new Set(currentFriends || []);
+    const blockedSet = new Set(currentUserProfile?.blocked || []);
+    const friends = allUsersCache
+        .map((user) => {
+            if (!user) return null;
+            if (!user.uid && user.id) return { ...user, uid: user.id };
+            return user;
+        })
+        .filter((user) => user?.uid && friendSet.has(user.uid) && !user.disabled && !blockedSet.has(user.uid));
+
+    if (currentUser && friendSet.has(currentUser.uid)) {
+        friends.unshift({
+            ...(currentUserProfile || {}),
+            uid: currentUser.uid,
+            id: currentUser.uid,
+            name: currentUserProfile?.name || currentUser.displayName || currentUser.email || 'Usuário',
+            email: currentUserProfile?.email || currentUser.email || '',
+            photoURL: currentUserProfile?.photoURL || currentUser.photoURL || null,
+            photoData: currentUserProfile?.photoData || null
+        });
+    }
+
+    const unique = new Map();
+    friends.forEach((friend) => {
+        if (friend?.uid && !unique.has(friend.uid)) unique.set(friend.uid, friend);
+    });
+    return Array.from(unique.values());
+}
+
+function renderMobileCompanionScreens(sourceFriends = null) {
+    const friends = Array.isArray(sourceFriends) ? sourceFriends : getVisibleFriendUsers();
+    renderMobileContacts(friends);
+    renderMobileStatus(friends);
+    renderMobileCalls(friends);
+    if (mobileChatBadge) {
+        const count = Math.min(friends.length || 0, 99);
+        mobileChatBadge.textContent = String(count);
+        mobileChatBadge.classList.toggle('hidden', count === 0);
+    }
+}
+
+function getMobileStoriesStorageKey() {
+    return `${MOBILE_STORIES_STORAGE_KEY_PREFIX}${currentUser?.uid || 'guest'}`;
+}
+
+function loadMobileStories() {
+    const profileStories = Array.isArray(currentUserProfile?.stories) ? currentUserProfile.stories : [];
+    try {
+        const raw = localStorage.getItem(getMobileStoriesStorageKey());
+        const stories = [...profileStories, ...(raw ? JSON.parse(raw) : [])];
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        const unique = new Map();
+        (Array.isArray(stories) ? stories : []).forEach((story) => {
+            if (story && story.createdAt > cutoff) unique.set(story.id || `${story.createdAt}-${story.text || story.name || ''}`, story);
+        });
+        return Array.from(unique.values()).sort((a, b) => b.createdAt - a.createdAt);
+    } catch (error) {
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        return profileStories.filter((story) => story && story.createdAt > cutoff);
+    }
+}
+
+function saveMobileStories(stories) {
+    try {
+        localStorage.setItem(getMobileStoriesStorageKey(), JSON.stringify(stories.slice(0, 12)));
+    } catch (error) {
+        console.warn('Não foi possível salvar o story local.', error);
+    }
+}
+
+function addMobileStory(story) {
+    const stories = loadMobileStories();
+    const nextStory = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        createdAt: Date.now(),
+        ...story
+    };
+    stories.unshift(nextStory);
+    saveMobileStories(stories);
+    if (currentUser) {
+        db.collection('users').doc(currentUser.uid).set({
+            stories: stories.slice(0, 12),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true }).catch((error) => {
+            console.warn('Não foi possível publicar o story no Firestore.', error);
+        });
+    }
+    renderMobileCompanionScreens();
+}
+
+function buildMobileAvatar(user, size = 56) {
+    const img = document.createElement('img');
+    const fallback = `https://via.placeholder.com/${size}/1f2937/e5e7eb?text=${encodeURIComponent((getFriendDisplayName(user) || 'U').charAt(0).toUpperCase())}`;
+    const sources = resolvePhotoSources(user, fallback);
+    img.src = sources.fallback;
+    img.alt = 'avatar';
+    if (sources.url) hydratePhotoFromUrl(img, sources.url, sources.fallback);
+    return img;
+}
+
+function renderMobileContacts(friends) {
+    if (!mobileContactsList) return;
+    mobileContactsList.innerHTML = '';
+    const contactCount = friends.length;
+    if (mobileContactsCount) {
+        mobileContactsCount.textContent = `${contactCount} contato${contactCount !== 1 ? 's' : ''}`;
+    }
+    if (contactCount === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'mobile-list-empty';
+        empty.textContent = 'Nenhum contato adicionado.';
+        mobileContactsList.appendChild(empty);
+        return;
+    }
+    friends.forEach((friend) => {
+        const item = document.createElement('li');
+        item.className = 'mobile-contact-item';
+        item.appendChild(buildMobileAvatar(friend, 52));
+        const text = document.createElement('div');
+        text.className = 'mobile-contact-text';
+        const name = document.createElement('strong');
+        name.textContent = getFriendDisplayName(friend);
+        const status = document.createElement('span');
+        status.textContent = currentUser && friend.uid === currentUser.uid ? 'Mensagens para mim' : getUserPresenceStatusText(friend);
+        text.append(name, status);
+        item.appendChild(text);
+        item.addEventListener('click', () => selectUser(friend));
+        mobileContactsList.appendChild(item);
+    });
+}
+
+function renderMobileStatus(friends) {
+    if (!mobileStatusList) return;
+    mobileStatusList.innerHTML = '';
+    const ownStories = loadMobileStories();
+    const selfItem = document.createElement('li');
+    selfItem.className = 'mobile-status-item';
+    selfItem.appendChild(buildMobileAvatar(currentUserProfile || { name: currentUser?.displayName || 'Meu status' }, 58));
+    const selfText = document.createElement('div');
+    selfText.className = 'mobile-status-text';
+    selfText.innerHTML = `<strong>Meu status</strong><span>${ownStories.length ? 'Agora' : 'Toque nos botões para adicionar'}</span>`;
+    selfItem.appendChild(selfText);
+    mobileStatusList.appendChild(selfItem);
+
+    ownStories.forEach((story) => {
+        const item = document.createElement('li');
+        item.className = 'mobile-status-item has-ring';
+        item.appendChild(buildMobileAvatar(currentUserProfile || { name: 'Meu status' }, 58));
+        const text = document.createElement('div');
+        text.className = 'mobile-status-text';
+        const title = document.createElement('strong');
+        title.textContent = story.type === 'media' ? 'Seu story de mídia' : story.text;
+        const time = document.createElement('span');
+        time.textContent = 'Disponível por 24 horas';
+        text.append(title, time);
+        item.appendChild(text);
+        mobileStatusList.appendChild(item);
+    });
+
+    const label = document.createElement('li');
+    label.className = 'mobile-status-label';
+    label.textContent = 'Atualizações recentes';
+    mobileStatusList.appendChild(label);
+
+    friends.filter((friend) => !currentUser || friend.uid !== currentUser.uid).slice(0, 12).forEach((friend, index) => {
+        const item = document.createElement('li');
+        item.className = 'mobile-status-item has-ring';
+        item.appendChild(buildMobileAvatar(friend, 58));
+        const text = document.createElement('div');
+        text.className = 'mobile-status-text';
+        const name = document.createElement('strong');
+        name.textContent = getFriendDisplayName(friend);
+        const time = document.createElement('span');
+        const minutes = [7, 17, 24, 38, 55][index % 5];
+        time.textContent = `há ${minutes} minutos`;
+        text.append(name, time);
+        item.appendChild(text);
+        mobileStatusList.appendChild(item);
+    });
+}
+
+function renderMobileCalls(friends) {
+    if (!mobileCallsList) return;
+    mobileCallsList.innerHTML = '';
+    const callable = friends.filter((friend) => !currentUser || friend.uid !== currentUser.uid);
+    const favorite = callable[0];
+    if (mobileCallFavorite && favorite) {
+        const slot = mobileCallFavorite.querySelector('span');
+        if (slot) {
+            slot.innerHTML = '';
+            slot.appendChild(buildMobileAvatar(favorite, 58));
+        }
+        mobileCallFavorite.onclick = () => selectUser(favorite);
+    }
+    if (callable.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'mobile-list-empty';
+        empty.textContent = 'Nenhuma ligação recente.';
+        mobileCallsList.appendChild(empty);
+        return;
+    }
+    callable.slice(0, 8).forEach((friend, index) => {
+        const item = document.createElement('li');
+        item.className = `mobile-call-item ${index % 3 === 0 ? 'missed' : ''}`;
+        item.appendChild(buildMobileAvatar(friend, 52));
+        const text = document.createElement('div');
+        text.className = 'mobile-call-text';
+        const name = document.createElement('strong');
+        name.textContent = `${getFriendDisplayName(friend)}${index % 2 === 0 ? ' (3)' : ''}`;
+        const meta = document.createElement('span');
+        meta.textContent = `${index % 3 === 0 ? '↙' : '↗'} ${index === 0 ? 'há 38 minutos' : 'Ontem 21:40'}`;
+        text.append(name, meta);
+        const callButton = document.createElement('button');
+        callButton.className = 'mobile-inline-call';
+        callButton.type = 'button';
+        callButton.innerHTML = '&#128222;';
+        callButton.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            await selectUser(friend);
+            if (btnCall && !btnCall.disabled) btnCall.click();
+        });
+        item.append(text, callButton);
+        item.addEventListener('click', () => selectUser(friend));
+        mobileCallsList.appendChild(item);
+    });
+}
+
+function setMobileHomeView(view) {
+    mobileActiveView = view || 'chats';
+    if (app) {
+        app.dataset.mobileView = mobileActiveView;
+        app.classList.remove('mobile-chat-open');
+    }
+    if (mobileContactsScreen) mobileContactsScreen.classList.add('hidden');
+    if (mobileBottomNav) {
+        mobileBottomNav.querySelectorAll('.mobile-nav-item').forEach((button) => {
+            button.classList.toggle('active', button.dataset.mobileView === mobileActiveView);
+        });
+    }
+    renderMobileCompanionScreens();
+}
+
+function openMobileContactsScreen() {
+    if (!app || !mobileContactsScreen) return;
+    app.dataset.mobileView = 'contacts';
+    app.classList.remove('mobile-chat-open');
+    mobileContactsScreen.classList.remove('hidden');
+    renderMobileCompanionScreens();
 }
 
 function bindFriendSelectionInteractions(friendEl, user) {
@@ -7285,6 +7686,9 @@ async function selectUser(user) {
     }
     selectedUserId = user.uid;
     selectedFriendData = user;
+    if (app && isMobileLayout()) {
+        app.classList.add('mobile-chat-open');
+    }
     resetMessageSelectionState();
     clearReplyTargetMessage();
     
@@ -11998,6 +12402,12 @@ if (aboutModal) {
 }
 
 document.addEventListener('click', (event) => {
+    if (mobileOptionsMenu && !mobileOptionsMenu.classList.contains('hidden')) {
+        const target = event.target;
+        if (!mobileOptionsMenu.contains(target) && !(mobileHomeMenu && mobileHomeMenu.contains(target))) {
+            mobileOptionsMenu.classList.add('hidden');
+        }
+    }
     if (!settingsMenu || settingsMenu.classList.contains('hidden')) return;
     const target = event.target;
     if (settingsMenu.contains(target)) return;
