@@ -364,7 +364,7 @@ class MainActivity : AppCompatActivity() {
         settings.javaScriptCanOpenWindowsAutomatically = true
         settings.setSupportMultipleWindows(true)
         settings.loadsImagesAutomatically = true
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
+        settings.cacheMode = WebSettings.LOAD_NO_CACHE
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
         CookieManager.getInstance().setAcceptCookie(true)
@@ -1522,4 +1522,3 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
-
