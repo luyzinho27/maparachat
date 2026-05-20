@@ -190,6 +190,7 @@ const settingsMenu = document.getElementById('settings-menu');
 const sidebarSettings = document.getElementById('sidebar-settings');
 const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
+const desktopSectionTabs = document.querySelectorAll('.desktop-section-tab');
 const mobileHomeCamera = document.getElementById('mobile-home-camera');
 const mobileHomeMenu = document.getElementById('mobile-home-menu');
 const mobileOptionsMenu = document.getElementById('mobile-options-menu');
@@ -265,6 +266,8 @@ let selectedLanguage = 'pt-BR';
 let pendingAndroidCallAction = null;
 let lastAndroidFcmToken = '';
 let mobileActiveView = 'chats';
+let desktopActiveSection = 'chats';
+let lastRenderedFriendUsers = [];
 
 // Admin panel
 const chatPanel = document.getElementById('chat-panel');
@@ -6651,6 +6654,12 @@ if (sidebarOverlay) {
     });
 }
 
+desktopSectionTabs.forEach((button) => {
+    button.addEventListener('click', () => {
+        setDesktopSection(button.dataset.desktopSection || 'chats');
+    });
+});
+
 if (mobileBottomNav) {
     mobileBottomNav.addEventListener('click', (event) => {
         const button = event.target.closest('.mobile-nav-item');
@@ -6972,7 +6981,8 @@ function renderFriendUsers() {
         return (b.lastSeen?.seconds || 0) - (a.lastSeen?.seconds || 0);
     });
 
-    renderUsers(friends);
+    lastRenderedFriendUsers = friends;
+    renderDesktopSection();
     if (totalUsers) {
         totalUsers.textContent = `${friends.length} contato${friends.length !== 1 ? 's' : ''}`;
     }
@@ -7269,6 +7279,93 @@ function renderMobileCalls(friends) {
         item.append(text, callButton);
         item.addEventListener('click', () => selectUser(friend));
         mobileCallsList.appendChild(item);
+    });
+}
+
+function setDesktopSection(section) {
+    desktopActiveSection = section || 'chats';
+    desktopSectionTabs.forEach((button) => {
+        button.classList.toggle('active', button.dataset.desktopSection === desktopActiveSection);
+    });
+    renderDesktopSection();
+}
+
+function renderDesktopSection() {
+    const friends = Array.isArray(lastRenderedFriendUsers) ? lastRenderedFriendUsers : [];
+    if (desktopActiveSection === 'status') {
+        renderDesktopStatusList(friends);
+        return;
+    }
+    if (desktopActiveSection === 'calls') {
+        renderDesktopCallsList(friends);
+        return;
+    }
+    renderUsers(friends);
+}
+
+function renderDesktopStatusList(friends) {
+    if (!usersList) return;
+    usersList.innerHTML = '';
+    const ownStories = loadMobileStories();
+    const self = document.createElement('li');
+    self.className = 'user-item desktop-story-item';
+    self.innerHTML = `
+        <div class="desktop-story-avatar">+</div>
+        <div class="user-item-info">
+            <h4>Meu status</h4>
+            <p>${ownStories.length ? 'Publicado nas últimas 24 horas' : 'Adicionar texto, foto ou vídeo'}</p>
+        </div>
+    `;
+    self.addEventListener('click', () => {
+        const text = prompt('Digite o texto do story:');
+        if (text && text.trim()) {
+            addMobileStory({ type: 'text', text: text.trim().slice(0, 180) });
+        }
+    });
+    usersList.appendChild(self);
+
+    friends.filter((friend) => !currentUser || friend.uid !== currentUser.uid).forEach((friend) => {
+        const li = document.createElement('li');
+        li.className = 'user-item desktop-story-item';
+        li.appendChild(buildMobileAvatar(friend, 45));
+        const info = document.createElement('div');
+        info.className = 'user-item-info';
+        info.innerHTML = `<h4>${getFriendDisplayName(friend)}</h4><p>Status disponível por 24 horas</p>`;
+        li.appendChild(info);
+        usersList.appendChild(li);
+    });
+}
+
+function renderDesktopCallsList(friends) {
+    if (!usersList) return;
+    usersList.innerHTML = '';
+    const callable = friends.filter((friend) => !currentUser || friend.uid !== currentUser.uid);
+    if (callable.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'user-item empty';
+        empty.innerHTML = '<div class="user-item-info"><h4>Nenhuma ligação</h4><p>Adicione contatos para iniciar chamadas.</p></div>';
+        usersList.appendChild(empty);
+        return;
+    }
+    callable.forEach((friend, index) => {
+        const li = document.createElement('li');
+        li.className = 'user-item desktop-call-item';
+        li.appendChild(buildMobileAvatar(friend, 45));
+        const info = document.createElement('div');
+        info.className = 'user-item-info';
+        info.innerHTML = `<h4>${getFriendDisplayName(friend)}${index % 2 === 0 ? ' (3)' : ''}</h4><p>${index % 3 === 0 ? 'Ligação perdida' : 'Ligação recente'}</p>`;
+        const callButton = document.createElement('button');
+        callButton.className = 'desktop-call-action';
+        callButton.type = 'button';
+        callButton.textContent = 'Ligar';
+        callButton.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            await selectUser(friend);
+            if (btnCall && !btnCall.disabled) btnCall.click();
+        });
+        li.append(info, callButton);
+        li.addEventListener('click', () => selectUser(friend));
+        usersList.appendChild(li);
     });
 }
 
