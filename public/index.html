@@ -149,6 +149,20 @@
         <div id="sidebar-overlay" class="sidebar-overlay"></div>
         <!-- Sidebar -->
         <aside class="sidebar">
+            <div class="mobile-home-header">
+                <div class="mobile-home-title-row">
+                    <h1>MaparaChat</h1>
+                    <div class="mobile-home-actions">
+                        <button id="mobile-home-camera" class="mobile-icon-btn" type="button" title="Câmera" aria-label="Câmera">&#128247;</button>
+                        <button id="mobile-home-menu" class="mobile-icon-btn" type="button" title="Menu" aria-label="Menu">&#8942;</button>
+                    </div>
+                </div>
+                <div id="mobile-options-menu" class="mobile-options-menu hidden">
+                    <button id="mobile-menu-new-group" type="button">Novo grupo</button>
+                    <button id="mobile-menu-read-all" type="button">Marcar tudo como lido</button>
+                    <button id="mobile-menu-settings" type="button">Configurações</button>
+                </div>
+            </div>
             <header class="sidebar-header">
                 <img id="user-photo" src="" alt="foto" class="user-avatar">
                 <div class="user-info-header">
@@ -212,6 +226,79 @@
                 <button id="btn-settings" class="settings-btn" type="button" title="Configurações" aria-label="Configurações">&#9881;</button>
             </div>
         </aside>
+
+        <section id="mobile-contacts-screen" class="mobile-app-screen hidden" aria-label="Contatos">
+            <header class="mobile-screen-header">
+                <button id="mobile-contacts-back" class="mobile-icon-btn" type="button" aria-label="Voltar">&#8592;</button>
+                <div class="mobile-screen-title">
+                    <h2>Contatos</h2>
+                    <span id="mobile-contacts-count">0 contatos</span>
+                </div>
+                <button id="mobile-contacts-search" class="mobile-icon-btn" type="button" aria-label="Pesquisar">&#128269;</button>
+                <button id="mobile-contacts-menu" class="mobile-icon-btn" type="button" aria-label="Menu">&#8942;</button>
+            </header>
+            <div class="mobile-quick-actions">
+                <button id="mobile-new-group" class="mobile-quick-action" type="button">
+                    <span class="mobile-quick-icon">&#128101;</span>
+                    <span>Novo grupo</span>
+                </button>
+                <button id="mobile-new-contact" class="mobile-quick-action" type="button">
+                    <span class="mobile-quick-icon">&#128100;</span>
+                    <span>Novo contato</span>
+                    <span class="mobile-qr-icon">&#9638;</span>
+                </button>
+                <button id="mobile-new-community" class="mobile-quick-action" type="button">
+                    <span class="mobile-quick-icon">&#128106;</span>
+                    <span>Nova comunidade</span>
+                </button>
+            </div>
+            <h3 class="mobile-section-label">Contatos no MaparaChat</h3>
+            <ul id="mobile-contacts-list" class="mobile-contacts-list"></ul>
+        </section>
+
+        <section id="mobile-status-screen" class="mobile-app-screen hidden" aria-label="Stories">
+            <header class="mobile-page-header">
+                <h1>Atualizações</h1>
+                <div class="mobile-home-actions">
+                    <button id="mobile-status-search" class="mobile-icon-btn" type="button" aria-label="Pesquisar">&#128269;</button>
+                    <button id="mobile-status-menu" class="mobile-icon-btn" type="button" aria-label="Menu">&#8942;</button>
+                </div>
+            </header>
+            <h2 class="mobile-status-title">Status</h2>
+            <input type="file" id="mobile-status-upload" class="hidden" accept="image/*,video/*" capture="environment">
+            <ul id="mobile-status-list" class="mobile-status-list"></ul>
+            <div class="mobile-status-fabs">
+                <button id="mobile-status-text" class="mobile-mini-fab" type="button" aria-label="Criar story de texto">&#9998;</button>
+                <button id="mobile-status-media" class="mobile-fab" type="button" aria-label="Adicionar foto ou vídeo">&#128247;<span>+</span></button>
+            </div>
+        </section>
+
+        <section id="mobile-calls-screen" class="mobile-app-screen hidden" aria-label="Ligações">
+            <header class="mobile-page-header">
+                <h1>Ligações</h1>
+                <div class="mobile-home-actions">
+                    <button id="mobile-calls-search" class="mobile-icon-btn" type="button" aria-label="Pesquisar">&#128269;</button>
+                    <button id="mobile-calls-menu" class="mobile-icon-btn" type="button" aria-label="Menu">&#8942;</button>
+                </div>
+            </header>
+            <div class="mobile-call-shortcuts">
+                <button class="mobile-call-shortcut" type="button">
+                    <span>&#128222;</span>
+                    <small>Ligar</small>
+                </button>
+                <button class="mobile-call-shortcut" type="button">
+                    <span>&#10247;</span>
+                    <small>Teclado</small>
+                </button>
+                <button id="mobile-call-favorite" class="mobile-call-shortcut mobile-call-favorite" type="button">
+                    <span></span>
+                    <small>Favorito</small>
+                </button>
+            </div>
+            <h2 class="mobile-status-title">Recentes</h2>
+            <ul id="mobile-calls-list" class="mobile-calls-list"></ul>
+            <button id="mobile-new-call" class="mobile-fab mobile-call-fab" type="button" aria-label="Nova ligação">&#128222;<span>+</span></button>
+        </section>
 
         <!-- Área de chat -->
         <div class="main-panel">
@@ -392,6 +479,23 @@
                 </div>
             </section>
         </div>
+
+        <button id="mobile-new-chat" class="mobile-fab mobile-chat-fab" type="button" aria-label="Nova conversa">&#128172;<span>+</span></button>
+
+        <nav id="mobile-bottom-nav" class="mobile-bottom-nav" aria-label="Navegação principal">
+            <button class="mobile-nav-item active" type="button" data-mobile-view="chats">
+                <span class="mobile-nav-icon">&#128233;<small id="mobile-chat-badge">0</small></span>
+                <strong>Conversas</strong>
+            </button>
+            <button class="mobile-nav-item" type="button" data-mobile-view="status">
+                <span class="mobile-nav-icon">&#128172;<small></small></span>
+                <strong>Stories</strong>
+            </button>
+            <button class="mobile-nav-item" type="button" data-mobile-view="calls">
+                <span class="mobile-nav-icon">&#128222;</span>
+                <strong>Ligações</strong>
+            </button>
+        </nav>
     </div>
 
     <!-- Modal de foto de perfil -->
