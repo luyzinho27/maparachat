@@ -1980,6 +1980,40 @@ body.media-viewer-open {
     color: #888;
 }
 
+.user-item-meta {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.user-item-time {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.user-item-meta.has-unread .user-item-time {
+    color: #0754d8;
+}
+
+.user-item-unread {
+    min-width: 22px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #0754d8;
+    color: #061015;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+}
+
 /* Área de chat */
 .chat-area {
     flex: 1;
@@ -4088,7 +4122,7 @@ body.theme-dark .download-progress-item .upload-progress-status::before {
         bottom: 0;
         z-index: 20;
         height: 132px;
-        padding: 10px 34px calc(10px + env(safe-area-inset-bottom));
+        padding: 8px 8px calc(10px + env(safe-area-inset-bottom));
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
@@ -4101,21 +4135,23 @@ body.theme-dark .download-progress-item .upload-progress-status::before {
     }
 
     .mobile-nav-item {
-        min-width: 118px;
+        flex: 1 1 0;
+        min-width: 0;
+        height: 100%;
         border: none;
         background: transparent;
         color: #f4f7fa;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 8px;
+        gap: 7px;
         font-size: 24px;
         cursor: pointer;
     }
 
     .mobile-nav-icon {
         position: relative;
-        width: 112px;
+        width: 96px;
         height: 56px;
         border-radius: 999px;
         display: inline-flex;
@@ -4130,8 +4166,10 @@ body.theme-dark .download-progress-item .upload-progress-status::before {
     }
 
     .mobile-nav-item strong {
-        font-size: 25px;
+        font-size: clamp(20px, 5vw, 25px);
         font-weight: 500;
+        line-height: 1.1;
+        white-space: nowrap;
     }
 
     .mobile-nav-item.active strong {
@@ -4140,8 +4178,10 @@ body.theme-dark .download-progress-item .upload-progress-status::before {
 
     .mobile-nav-icon small {
         position: absolute;
-        top: -6px;
-        right: 22px;
+        top: -8px;
+        left: 50%;
+        right: auto;
+        transform: translateX(12px);
         min-width: 34px;
         height: 25px;
         padding: 0 6px;
@@ -4550,6 +4590,25 @@ body.android-app .user-item-info p {
     text-overflow: ellipsis;
 }
 
+body.android-app .user-item-meta {
+    min-width: 58px;
+    gap: 8px;
+    align-self: center;
+}
+
+body.android-app .user-item-time {
+    color: #0754d8;
+    font-size: 19px;
+}
+
+body.android-app .user-item-unread {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
+    color: #061015;
+    font-size: 18px;
+}
+
 body.android-app .mobile-options-menu {
     position: fixed;
     top: 168px;
@@ -4885,7 +4944,7 @@ body.android-app .mobile-bottom-nav {
     bottom: 0;
     z-index: 20;
     height: 132px;
-    padding: 10px 34px calc(10px + env(safe-area-inset-bottom));
+    padding: 8px 8px calc(10px + env(safe-area-inset-bottom));
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -4898,21 +4957,23 @@ body.android-app .app.mobile-chat-open .mobile-bottom-nav {
 }
 
 body.android-app .mobile-nav-item {
-    min-width: 118px;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 100%;
     border: none;
     background: transparent;
     color: #f4f7fa;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     font-size: 24px;
     cursor: pointer;
 }
 
 body.android-app .mobile-nav-icon {
     position: relative;
-    width: 112px;
+    width: 96px;
     height: 56px;
     border-radius: 999px;
     display: inline-flex;
@@ -4927,8 +4988,10 @@ body.android-app .mobile-nav-item.active .mobile-nav-icon {
 }
 
 body.android-app .mobile-nav-item strong {
-    font-size: 25px;
+    font-size: clamp(20px, 5vw, 25px);
     font-weight: 500;
+    line-height: 1.1;
+    white-space: nowrap;
 }
 
 body.android-app .mobile-nav-item.active strong {
@@ -4937,8 +5000,10 @@ body.android-app .mobile-nav-item.active strong {
 
 body.android-app .mobile-nav-icon small {
     position: absolute;
-    top: -6px;
-    right: 22px;
+    top: -8px;
+    left: 50%;
+    right: auto;
+    transform: translateX(12px);
     min-width: 34px;
     height: 25px;
     padding: 0 6px;
@@ -4950,4 +5015,22 @@ body.android-app .mobile-nav-icon small {
     justify-content: center;
     font-size: 16px;
     font-weight: 800;
+}
+
+.android-exit-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    z-index: 7000;
+    width: max-content;
+    max-width: calc(100vw - 48px);
+    transform: translateX(-50%);
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: rgba(20, 27, 31, 0.96);
+    color: #f4f7fa;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
 }
