@@ -214,6 +214,8 @@ const mobileNewCall = document.getElementById('mobile-new-call');
 const mobileCallFavorite = document.getElementById('mobile-call-favorite');
 const mobileBottomNav = document.getElementById('mobile-bottom-nav');
 const mobileChatBadge = document.getElementById('mobile-chat-badge');
+const mobileStatusBadge = document.getElementById('mobile-status-badge');
+const mobileCallsBadge = document.getElementById('mobile-calls-badge');
 const aboutModal = document.getElementById('about-modal');
 const aboutClose = document.getElementById('about-close');
 const aboutContent = document.getElementById('about-content');
@@ -247,6 +249,8 @@ const USERS_CACHE_STORAGE_KEY_PREFIX = 'maparachat_users_cache_';
 const USERS_CACHE_MAX_PHOTO_DATA_LENGTH = 30000;
 const ANDROID_FCM_TOKEN_STORAGE_KEY = 'maparachat_android_fcm_token';
 const MOBILE_STORIES_STORAGE_KEY_PREFIX = 'maparachat_mobile_stories_';
+const MOBILE_CALLS_SEEN_STORAGE_KEY_PREFIX = 'maparachat_mobile_calls_seen_';
+const ANDROID_BACK_EXIT_INTERVAL_MS = 2200;
 
 let soundNotificationsEnabled = true;
 let messageToneDataUrl = '';
@@ -529,6 +533,11 @@ let renegotiationFallbackUsed = false;
 let conversationMetaByFriendId = new Map();
 let conversationMetaUnsubscribes = new Map();
 let conversationMetaBackfillAttempts = new Set();
+let unreadMessageCountByFriendId = new Map();
+let unreadMessageUnsubscribes = new Map();
+let recentCallUnsubscribe = null;
+let recentIncomingCallCount = 0;
+let lastAndroidBackPressAt = 0;
 let audioRecorder = null;
 let audioRecorderStream = null;
 let audioRecorderChunks = [];
@@ -3240,6 +3249,7 @@ auth.onAuthStateChanged(async (user) => {
         loadUsers();
 
         listenForIncomingCalls();
+        listenForRecentIncomingCalls();
         setTimeout(() => {
             processPendingAndroidSharePayload();
         }, 300);
@@ -3277,12 +3287,15 @@ auth.onAuthStateChanged(async (user) => {
         if (adminUsersUnsubscribe) adminUsersUnsubscribe();
         if (currentUserDocUnsubscribe) currentUserDocUnsubscribe();
         if (incomingCallUnsubscribe) incomingCallUnsubscribe();
+        if (recentCallUnsubscribe) recentCallUnsubscribe();
         clearConversationMetaSubscriptions();
         messagesUnsubscribe = null;
         usersUnsubscribe = null;
         adminUsersUnsubscribe = null;
         currentUserDocUnsubscribe = null;
         incomingCallUnsubscribe = null;
+        recentCallUnsubscribe = null;
+        recentIncomingCallCount = 0;
         if (onlineStatusInterval) clearInterval(onlineStatusInterval);
 
         selectedUserId = null;
@@ -5118,6 +5131,28 @@ function listenForIncomingCalls() {
                     }
                 }
             });
+        });
+}
+
+function listenForRecentIncomingCalls() {
+    if (!currentUser) return;
+    if (recentCallUnsubscribe) recentCallUnsubscribe();
+
+    recentCallUnsubscribe = db.collection('calls')
+        .where('calleeId', '==', currentUser.uid)
+        .onSnapshot((snapshot) => {
+            const lastSeenAt = getLastSeenCallsAt();
+            const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            recentIncomingCallCount = snapshot.docs.filter((doc) => {
+                const data = doc.data() || {};
+                const createdAt = timestampToDate(data.createdAt || data.updatedAt);
+                const createdMs = createdAt ? createdAt.getTime() : 0;
+                if (!createdMs || createdMs < sevenDaysAgo) return false;
+                return createdMs > lastSeenAt;
+            }).length;
+            updateMobileNavBadges();
+        }, (error) => {
+            console.warn('Falha ao contar ligações recentes.', error);
         });
 }
 
@@ -7089,15 +7124,58 @@ function renderMobileCompanionScreens(sourceFriends = null) {
     renderMobileContacts(friends);
     renderMobileStatus(friends);
     renderMobileCalls(friends);
-    if (mobileChatBadge) {
-        const count = Math.min(friends.length || 0, 99);
-        mobileChatBadge.textContent = String(count);
-        mobileChatBadge.classList.toggle('hidden', count === 0);
-    }
+    updateMobileNavBadges(friends);
+}
+
+function setBadgeValue(element, value) {
+    if (!element) return;
+    const count = Math.max(0, Number(value) || 0);
+    element.textContent = count > 999 ? '999+' : String(count);
+    element.classList.toggle('hidden', count === 0);
+}
+
+function getTotalUnreadMessageCount(friends = []) {
+    return friends.reduce((total, friend) => total + (unreadMessageCountByFriendId.get(friend.uid) || 0), 0);
+}
+
+function getRecentStoriesCount(friends = []) {
+    const ownStories = loadMobileStories().length;
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const friendStories = friends.reduce((total, friend) => {
+        if (currentUser && friend.uid === currentUser.uid) return total;
+        const stories = Array.isArray(friend.stories) ? friend.stories : [];
+        return total + stories.filter((story) => story && Number(story.createdAt || 0) > cutoff).length;
+    }, 0);
+    return ownStories + friendStories;
+}
+
+function updateMobileNavBadges(friends = getVisibleFriendUsers()) {
+    setBadgeValue(mobileChatBadge, getTotalUnreadMessageCount(friends));
+    setBadgeValue(mobileStatusBadge, getRecentStoriesCount(friends));
+    setBadgeValue(mobileCallsBadge, recentIncomingCallCount);
 }
 
 function getMobileStoriesStorageKey() {
     return `${MOBILE_STORIES_STORAGE_KEY_PREFIX}${currentUser?.uid || 'guest'}`;
+}
+
+function getMobileCallsSeenStorageKey() {
+    return `${MOBILE_CALLS_SEEN_STORAGE_KEY_PREFIX}${currentUser?.uid || 'guest'}`;
+}
+
+function getLastSeenCallsAt() {
+    const value = Number(localStorage.getItem(getMobileCallsSeenStorageKey()) || 0);
+    return Number.isFinite(value) ? value : 0;
+}
+
+function markCallsSectionSeen() {
+    try {
+        localStorage.setItem(getMobileCallsSeenStorageKey(), String(Date.now()));
+    } catch (error) {
+        // ignore storage failures
+    }
+    recentIncomingCallCount = 0;
+    updateMobileNavBadges();
 }
 
 function loadMobileStories() {
@@ -7381,6 +7459,9 @@ function setMobileHomeView(view) {
             button.classList.toggle('active', button.dataset.mobileView === mobileActiveView);
         });
     }
+    if (mobileActiveView === 'calls') {
+        markCallsSectionSeen();
+    }
     renderMobileCompanionScreens();
 }
 
@@ -7503,6 +7584,9 @@ function renderUsers(users) {
         
         const status = getUserPresenceStatusText(user);
         const statusClass = status === 'Online' ? 'status-online-text' : '';
+        const unreadCount = unreadMessageCountByFriendId.get(user.uid) || 0;
+        const lastMessageTime = getConversationListTime(user.uid);
+        const previewText = getConversationPreviewText(user.uid, status);
         
         const { fallback: fallbackPhoto, url: photoUrl } = resolvePhotoSources(
             user,
@@ -7513,7 +7597,11 @@ function renderUsers(users) {
             <img src="${fallbackPhoto}" data-photo-url="${user.photoURL || ''}" alt="avatar">
             <div class="user-item-info">
                 <h4>${displayName}</h4>
-                <p class="${statusClass}">${status}</p>
+                <p class="${statusClass}">${previewText}</p>
+            </div>
+            <div class="user-item-meta ${unreadCount > 0 ? 'has-unread' : ''}">
+                ${lastMessageTime ? `<span class="user-item-time">${lastMessageTime}</span>` : ''}
+                ${unreadCount > 0 ? `<span class="user-item-unread">${unreadCount > 999 ? '999+' : unreadCount}</span>` : ''}
             </div>
         `;
 
@@ -7676,6 +7764,34 @@ function getFriendLastMessageTimestampMs(friendId) {
     return ts ? ts.getTime() : 0;
 }
 
+function getConversationListTime(friendId) {
+    const meta = getConversationMetaForFriend(friendId);
+    const date = timestampToDate(meta?.lastMessageAt || meta?.updatedAt);
+    if (!date) return '';
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    if (isToday) {
+        return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) return 'Ontem';
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+function getConversationPreviewText(friendId, fallbackStatus = '') {
+    const meta = getConversationMetaForFriend(friendId);
+    if (!meta) return fallbackStatus;
+    const text = String(meta.lastMessageText || '').trim();
+    if (text) return text;
+    const type = String(meta.lastMessageType || '').toLowerCase();
+    if (type === 'image') return 'Imagem';
+    if (type === 'video') return 'Vídeo';
+    if (type === 'audio' || type === 'voice') return 'Áudio';
+    if (type === 'file' || type === 'document') return 'Documento';
+    return fallbackStatus;
+}
+
 async function backfillConversationMeta(friendId) {
     if (!currentUser || !friendId) return;
     if (conversationMetaBackfillAttempts.has(friendId)) return;
@@ -7717,6 +7833,15 @@ function clearConversationMetaSubscriptions() {
     conversationMetaUnsubscribes = new Map();
     conversationMetaByFriendId = new Map();
     conversationMetaBackfillAttempts = new Set();
+    unreadMessageUnsubscribes.forEach((unsubscribe) => {
+        try {
+            unsubscribe();
+        } catch (error) {
+            // ignore
+        }
+    });
+    unreadMessageUnsubscribes = new Map();
+    unreadMessageCountByFriendId = new Map();
 }
 
 function ensureConversationMetaSubscriptions(friendIds) {
@@ -7735,25 +7860,60 @@ function ensureConversationMetaSubscriptions(friendIds) {
         }
     });
 
+    unreadMessageUnsubscribes.forEach((unsubscribe, friendId) => {
+        if (!activeIds.has(friendId)) {
+            try {
+                unsubscribe();
+            } catch (error) {
+                // ignore
+            }
+            unreadMessageUnsubscribes.delete(friendId);
+            unreadMessageCountByFriendId.delete(friendId);
+        }
+    });
+
     activeIds.forEach((friendId) => {
-        if (conversationMetaUnsubscribes.has(friendId)) return;
         const conversationId = getConversationId(currentUser.uid, friendId);
-        const unsubscribe = db.collection('conversations')
-            .doc(conversationId)
-            .onSnapshot((doc) => {
-                if (!doc.exists) {
-                    conversationMetaByFriendId.delete(friendId);
-                    backfillConversationMeta(friendId);
-                } else {
-                    const meta = doc.data() || {};
-                    conversationMetaByFriendId.set(friendId, meta);
-                    if (!meta.lastMessageAt && !meta.lastMessageText && !meta.lastMessageType) {
+
+        if (!conversationMetaUnsubscribes.has(friendId)) {
+            const unsubscribe = db.collection('conversations')
+                .doc(conversationId)
+                .onSnapshot((doc) => {
+                    if (!doc.exists) {
+                        conversationMetaByFriendId.delete(friendId);
                         backfillConversationMeta(friendId);
+                    } else {
+                        const meta = doc.data() || {};
+                        conversationMetaByFriendId.set(friendId, meta);
+                        if (!meta.lastMessageAt && !meta.lastMessageText && !meta.lastMessageType) {
+                            backfillConversationMeta(friendId);
+                        }
                     }
-                }
-                renderFriendUsers();
-            });
-        conversationMetaUnsubscribes.set(friendId, unsubscribe);
+                    renderFriendUsers();
+                });
+            conversationMetaUnsubscribes.set(friendId, unsubscribe);
+        }
+
+        if (friendId === currentUser.uid) {
+            unreadMessageCountByFriendId.delete(friendId);
+            return;
+        }
+
+        if (!unreadMessageUnsubscribes.has(friendId)) {
+            const unreadUnsubscribe = db.collection('conversations')
+                .doc(conversationId)
+                .collection('messages')
+                .where('senderId', '==', friendId)
+                .where('receiverId', '==', currentUser.uid)
+                .where('read', '==', false)
+                .onSnapshot((snapshot) => {
+                    unreadMessageCountByFriendId.set(friendId, snapshot.size || 0);
+                    renderFriendUsers();
+                }, (error) => {
+                    console.warn('Falha ao contar mensagens não lidas.', error);
+                });
+            unreadMessageUnsubscribes.set(friendId, unreadUnsubscribe);
+        }
     });
 }
 
@@ -11094,6 +11254,12 @@ function clearActiveConversation() {
     selectedFriendData = null;
     currentConversationId = null;
     currentConversationMessages = [];
+    if (app) {
+        app.classList.remove('mobile-chat-open');
+        if (!app.dataset.mobileView) {
+            app.dataset.mobileView = 'chats';
+        }
+    }
 
     document.querySelectorAll('.user-item').forEach((item) => {
         item.classList.remove('active');
@@ -11145,7 +11311,27 @@ function clearActiveConversation() {
     updateComposerPrimaryAction();
 }
 
+function showAndroidExitHint() {
+    let toast = document.getElementById('android-exit-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'android-exit-toast';
+        toast.className = 'android-exit-toast hidden';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = 'Pressione voltar novamente para sair do aplicativo.';
+    toast.classList.remove('hidden');
+    window.clearTimeout(showAndroidExitHint.hideTimer);
+    showAndroidExitHint.hideTimer = window.setTimeout(() => {
+        toast.classList.add('hidden');
+    }, 1900);
+}
+
 function handleAndroidBackPress() {
+    if (mobileOptionsMenu && !mobileOptionsMenu.classList.contains('hidden')) {
+        mobileOptionsMenu.classList.add('hidden');
+        return true;
+    }
     if (mediaViewerModal && !mediaViewerModal.classList.contains('hidden')) {
         closeMediaViewer();
         return true;
@@ -11174,6 +11360,19 @@ function handleAndroidBackPress() {
         setLogoutButtonVisible(false);
         return true;
     }
+    if (app?.classList.contains('mobile-chat-open') || selectedUserId || selectedFriendData || currentConversationId) {
+        clearActiveConversation();
+        setMobileHomeView('chats');
+        return true;
+    }
+    if (app?.dataset?.mobileView === 'contacts') {
+        setMobileHomeView('chats');
+        return true;
+    }
+    if (app?.dataset?.mobileView && app.dataset.mobileView !== 'chats') {
+        setMobileHomeView('chats');
+        return true;
+    }
     if (selectedUserId || selectedFriendData || currentConversationId) {
         clearActiveConversation();
         return true;
@@ -11186,7 +11385,13 @@ function handleAndroidBackPress() {
         setSidebarOpen(false);
         return true;
     }
-    return false;
+    const now = Date.now();
+    if (now - lastAndroidBackPressAt <= ANDROID_BACK_EXIT_INTERVAL_MS) {
+        return false;
+    }
+    lastAndroidBackPressAt = now;
+    showAndroidExitHint();
+    return true;
 }
 
 window.MaparaChatApp = window.MaparaChatApp || {};
