@@ -203,6 +203,7 @@ const mobileContactsCount = document.getElementById('mobile-contacts-count');
 const mobileContactsList = document.getElementById('mobile-contacts-list');
 const mobileNewChat = document.getElementById('mobile-new-chat');
 const mobileNewContact = document.getElementById('mobile-new-contact');
+const mobileNewGroup = document.getElementById('mobile-new-group');
 const mobileStatusScreen = document.getElementById('mobile-status-screen');
 const mobileStatusList = document.getElementById('mobile-status-list');
 const mobileStatusText = document.getElementById('mobile-status-text');
@@ -216,6 +217,18 @@ const mobileBottomNav = document.getElementById('mobile-bottom-nav');
 const mobileChatBadge = document.getElementById('mobile-chat-badge');
 const mobileStatusBadge = document.getElementById('mobile-status-badge');
 const mobileCallsBadge = document.getElementById('mobile-calls-badge');
+const mobileAddContactModal = document.getElementById('mobile-add-contact-modal');
+const mobileAddContactClose = document.getElementById('mobile-add-contact-close');
+const mobileAddContactInput = document.getElementById('mobile-add-contact-input');
+const mobileAddContactConfirm = document.getElementById('mobile-add-contact-confirm');
+const mobileNewGroupModal = document.getElementById('mobile-new-group-modal');
+const mobileNewGroupClose = document.getElementById('mobile-new-group-close');
+const mobileNewGroupName = document.getElementById('mobile-new-group-name');
+const mobileNewGroupMembers = document.getElementById('mobile-new-group-members');
+const mobileNewGroupCreate = document.getElementById('mobile-new-group-create');
+const mobileStoryViewer = document.getElementById('mobile-story-viewer');
+const mobileStoryClose = document.getElementById('mobile-story-close');
+const mobileStoryContent = document.getElementById('mobile-story-content');
 const aboutModal = document.getElementById('about-modal');
 const aboutClose = document.getElementById('about-close');
 const aboutContent = document.getElementById('about-content');
@@ -250,6 +263,7 @@ const USERS_CACHE_MAX_PHOTO_DATA_LENGTH = 30000;
 const ANDROID_FCM_TOKEN_STORAGE_KEY = 'maparachat_android_fcm_token';
 const MOBILE_STORIES_STORAGE_KEY_PREFIX = 'maparachat_mobile_stories_';
 const MOBILE_CALLS_SEEN_STORAGE_KEY_PREFIX = 'maparachat_mobile_calls_seen_';
+const MOBILE_GROUPS_STORAGE_KEY_PREFIX = 'maparachat_mobile_groups_';
 const ANDROID_BACK_EXIT_INTERVAL_MS = 2200;
 
 let soundNotificationsEnabled = true;
@@ -272,6 +286,8 @@ let lastAndroidFcmToken = '';
 let mobileActiveView = 'chats';
 let desktopActiveSection = 'chats';
 let lastRenderedFriendUsers = [];
+let pendingMobileGroupMemberIds = new Set();
+let mobileGroupsCache = [];
 
 // Admin panel
 const chatPanel = document.getElementById('chat-panel');
@@ -536,6 +552,9 @@ let conversationMetaBackfillAttempts = new Set();
 let unreadMessageCountByFriendId = new Map();
 let unreadMessageUnsubscribes = new Map();
 let recentCallUnsubscribe = null;
+let outgoingCallHistoryUnsubscribe = null;
+let groupConversationsUnsubscribe = null;
+let mobileCallHistoryById = new Map();
 let recentIncomingCallCount = 0;
 let lastAndroidBackPressAt = 0;
 let audioRecorder = null;
@@ -550,6 +569,7 @@ let cameraRecorder = null;
 let cameraRecorderChunks = [];
 let isCameraRecording = false;
 let cancelCameraRecording = false;
+let cameraCaptureTarget = 'chat';
 let currentCameraFacing = 'environment';
 let isCameraTorchOn = false;
 const CAMERA_VIDEO_CONSTRAINTS = {
@@ -3249,7 +3269,8 @@ auth.onAuthStateChanged(async (user) => {
         loadUsers();
 
         listenForIncomingCalls();
-        listenForRecentIncomingCalls();
+        listenForCallHistory();
+        listenForGroupConversations();
         setTimeout(() => {
             processPendingAndroidSharePayload();
         }, 300);
@@ -3288,6 +3309,8 @@ auth.onAuthStateChanged(async (user) => {
         if (currentUserDocUnsubscribe) currentUserDocUnsubscribe();
         if (incomingCallUnsubscribe) incomingCallUnsubscribe();
         if (recentCallUnsubscribe) recentCallUnsubscribe();
+        if (outgoingCallHistoryUnsubscribe) outgoingCallHistoryUnsubscribe();
+        if (groupConversationsUnsubscribe) groupConversationsUnsubscribe();
         clearConversationMetaSubscriptions();
         messagesUnsubscribe = null;
         usersUnsubscribe = null;
@@ -3295,7 +3318,11 @@ auth.onAuthStateChanged(async (user) => {
         currentUserDocUnsubscribe = null;
         incomingCallUnsubscribe = null;
         recentCallUnsubscribe = null;
+        outgoingCallHistoryUnsubscribe = null;
+        groupConversationsUnsubscribe = null;
         recentIncomingCallCount = 0;
+        mobileCallHistoryById = new Map();
+        mobileGroupsCache = [];
         if (onlineStatusInterval) clearInterval(onlineStatusInterval);
 
         selectedUserId = null;
@@ -5134,25 +5161,93 @@ function listenForIncomingCalls() {
         });
 }
 
-function listenForRecentIncomingCalls() {
+function listenForCallHistory() {
     if (!currentUser) return;
     if (recentCallUnsubscribe) recentCallUnsubscribe();
+    if (outgoingCallHistoryUnsubscribe) outgoingCallHistoryUnsubscribe();
+    mobileCallHistoryById = new Map();
+
+    const applySnapshot = (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+            if (change.type === 'removed') {
+                mobileCallHistoryById.delete(change.doc.id);
+                return;
+            }
+            mobileCallHistoryById.set(change.doc.id, {
+                id: change.doc.id,
+                ...(change.doc.data() || {})
+            });
+        });
+        const lastSeenAt = getLastSeenCallsAt();
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        recentIncomingCallCount = Array.from(mobileCallHistoryById.values()).filter((call) => {
+            if (call.calleeId !== currentUser.uid) return false;
+            const createdAt = timestampToDate(call.createdAt || call.updatedAt);
+            const createdMs = createdAt ? createdAt.getTime() : 0;
+            if (!createdMs || createdMs < sevenDaysAgo) return false;
+            return createdMs > lastSeenAt;
+        }).length;
+        renderMobileCompanionScreens();
+    };
+    const handleError = (error) => {
+        console.warn('Falha ao carregar historico de ligacoes.', error);
+    };
 
     recentCallUnsubscribe = db.collection('calls')
         .where('calleeId', '==', currentUser.uid)
-        .onSnapshot((snapshot) => {
-            const lastSeenAt = getLastSeenCallsAt();
-            const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-            recentIncomingCallCount = snapshot.docs.filter((doc) => {
-                const data = doc.data() || {};
-                const createdAt = timestampToDate(data.createdAt || data.updatedAt);
-                const createdMs = createdAt ? createdAt.getTime() : 0;
-                if (!createdMs || createdMs < sevenDaysAgo) return false;
-                return createdMs > lastSeenAt;
-            }).length;
-            updateMobileNavBadges();
+        .onSnapshot(applySnapshot, handleError);
+    outgoingCallHistoryUnsubscribe = db.collection('calls')
+        .where('callerId', '==', currentUser.uid)
+        .onSnapshot(applySnapshot, handleError);
+    loadCallHistoryOnce().catch(handleError);
+}
+/* removed stale call history listener */
+ 
+/*
         }, (error) => {
             console.warn('Falha ao contar ligações recentes.', error);
+        });
+}
+*/
+
+async function loadCallHistoryOnce() {
+    if (!currentUser) return;
+    const snapshots = await Promise.all([
+        db.collection('calls').where('calleeId', '==', currentUser.uid).get(),
+        db.collection('calls').where('callerId', '==', currentUser.uid).get()
+    ]);
+    snapshots.forEach((snapshot) => {
+        snapshot.forEach((doc) => {
+            mobileCallHistoryById.set(doc.id, {
+                id: doc.id,
+                ...(doc.data() || {})
+            });
+        });
+    });
+    renderMobileCompanionScreens();
+}
+
+function listenForGroupConversations() {
+    if (!currentUser) return;
+    if (groupConversationsUnsubscribe) groupConversationsUnsubscribe();
+
+    groupConversationsUnsubscribe = db.collection('conversations')
+        .where('type', '==', 'group')
+        .where('memberIds', 'array-contains', currentUser.uid)
+        .onSnapshot((snapshot) => {
+            mobileGroupsCache = snapshot.docs.map((doc) => {
+                const data = doc.data() || {};
+                return {
+                    uid: doc.id,
+                    name: data.name || 'Grupo',
+                    memberIds: Array.isArray(data.memberIds) ? data.memberIds.filter((id) => id !== currentUser.uid) : [],
+                    createdAt: timestampToDate(data.createdAt)?.getTime() || Date.now(),
+                    isLocalGroup: true
+                };
+            });
+            renderFriendUsers();
+        }, (error) => {
+            console.warn('Falha ao carregar grupos.', error);
         });
 }
 
@@ -5420,6 +5515,16 @@ function toggleLogoutButtonVisible() {
     }
     if (!btnLogout) return;
     setLogoutButtonVisible(btnLogout.classList.contains('hidden'));
+}
+
+function openMobileSettingsMenu() {
+    if (!settingsMenu) return;
+    if (settingsMenu.parentElement !== document.body) {
+        document.body.appendChild(settingsMenu);
+    }
+    settingsMenu.classList.remove('hidden');
+    settingsMenu.classList.add('mobile-settings-open');
+    setLogoutButtonVisible(true);
 }
 
 function getStoredTheme() {
@@ -6712,19 +6817,16 @@ if (mobileContactsBack) {
 }
 
 if (mobileNewContact) {
-    mobileNewContact.addEventListener('click', () => {
-        setMobileHomeView('chats');
-        if (friendEmailInput) friendEmailInput.focus();
-    });
+    mobileNewContact.addEventListener('click', openMobileAddContactModal);
+}
+
+if (mobileNewGroup) {
+    mobileNewGroup.addEventListener('click', openMobileNewGroupModal);
 }
 
 if (mobileHomeCamera) {
     mobileHomeCamera.addEventListener('click', () => {
-        if (btnCameraQuick && !btnCameraQuick.disabled) {
-            btnCameraQuick.click();
-        } else {
-            openCameraModal('photo');
-        }
+        openCameraModal('photo', 'story');
     });
 }
 
@@ -6740,20 +6842,81 @@ if (mobileHomeMenu) {
 if (mobileMenuNewGroup) {
     mobileMenuNewGroup.addEventListener('click', () => {
         if (mobileOptionsMenu) mobileOptionsMenu.classList.add('hidden');
-        alert('Criação de grupos será adicionada em uma próxima etapa.');
+        openMobileNewGroupModal();
     });
 }
 
 if (mobileMenuReadAll) {
     mobileMenuReadAll.addEventListener('click', () => {
         if (mobileOptionsMenu) mobileOptionsMenu.classList.add('hidden');
+        markAllVisibleChatsAsRead().catch((error) => {
+            console.warn('Falha ao marcar tudo como lido.', error);
+            alert('Nao foi possivel marcar tudo como lido.');
+        });
     });
 }
 
 if (mobileMenuSettings) {
     mobileMenuSettings.addEventListener('click', () => {
         if (mobileOptionsMenu) mobileOptionsMenu.classList.add('hidden');
+        openMobileSettingsMenu();
+        return;
         alert('Configurações completas continuam disponíveis pelo perfil no app.');
+    });
+}
+
+if (mobileAddContactClose) {
+    mobileAddContactClose.addEventListener('click', closeMobileAddContactModal);
+}
+
+if (mobileAddContactModal) {
+    mobileAddContactModal.addEventListener('click', (event) => {
+        if (event.target === mobileAddContactModal) closeMobileAddContactModal();
+    });
+}
+
+if (mobileAddContactConfirm) {
+    mobileAddContactConfirm.addEventListener('click', () => {
+        confirmMobileAddContact().catch((error) => {
+            alert('Não foi possível adicionar o contato: ' + (error?.message || error));
+        });
+    });
+}
+
+if (mobileAddContactInput) {
+    mobileAddContactInput.addEventListener('keypress', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            mobileAddContactConfirm?.click();
+        }
+    });
+}
+
+if (mobileNewGroupClose) {
+    mobileNewGroupClose.addEventListener('click', closeMobileNewGroupModal);
+}
+
+if (mobileNewGroupModal) {
+    mobileNewGroupModal.addEventListener('click', (event) => {
+        if (event.target === mobileNewGroupModal) closeMobileNewGroupModal();
+    });
+}
+
+if (mobileNewGroupCreate) {
+    mobileNewGroupCreate.addEventListener('click', () => {
+        createMobileGroup().catch((error) => {
+            alert('Não foi possível criar o grupo: ' + (error?.message || error));
+        });
+    });
+}
+
+if (mobileStoryClose) {
+    mobileStoryClose.addEventListener('click', closeMobileStoryViewer);
+}
+
+if (mobileStoryViewer) {
+    mobileStoryViewer.addEventListener('click', (event) => {
+        if (event.target === mobileStoryViewer) closeMobileStoryViewer();
     });
 }
 
@@ -6772,10 +6935,23 @@ if (mobileStatusUpload) {
             alert('Selecione uma imagem ou vídeo curto para o story.');
             return;
         }
-        if (file.size > 750 * 1024) {
+        if (false) {
             alert('Para publicar no story agora, escolha uma mídia de até 750KB.');
             return;
         }
+        const storyPayload = await createStoryMediaPayload(file).catch((error) => {
+            if (error?.message === 'VIDEO_TOO_LARGE') {
+                alert('Para publicar video no story, grave um video mais curto, de ate 2MB.');
+            } else {
+                alert('Nao foi possivel criar o story com esta midia.');
+            }
+            return null;
+        });
+        if (storyPayload) {
+            addMobileStory(storyPayload);
+            return;
+        }
+        return;
         const dataUrl = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result || '');
@@ -7006,6 +7182,18 @@ function renderFriendUsers() {
         }
     }
 
+    [...loadMobileGroups(), ...mobileGroupsCache].forEach((group) => {
+        if (!friends.some((friend) => friend.uid === group.uid)) {
+            friends.push({
+                ...group,
+                isLocalGroup: true,
+                email: '',
+                photoURL: group.photoURL || null,
+                photoData: group.photoData || null
+            });
+        }
+    });
+
     ensureConversationMetaSubscriptions(friends.map((user) => user.uid));
 
     // Ordenar pela mensagem mais recente
@@ -7112,6 +7300,16 @@ function getVisibleFriendUsers() {
         });
     }
 
+    [...loadMobileGroups(), ...mobileGroupsCache].forEach((group) => {
+        friends.push({
+            ...group,
+            isLocalGroup: true,
+            email: '',
+            photoData: group.photoData || null,
+            photoURL: group.photoURL || null
+        });
+    });
+
     const unique = new Map();
     friends.forEach((friend) => {
         if (friend?.uid && !unique.has(friend.uid)) unique.set(friend.uid, friend);
@@ -7144,7 +7342,7 @@ function getRecentStoriesCount(friends = []) {
     const friendStories = friends.reduce((total, friend) => {
         if (currentUser && friend.uid === currentUser.uid) return total;
         const stories = Array.isArray(friend.stories) ? friend.stories : [];
-        return total + stories.filter((story) => story && Number(story.createdAt || 0) > cutoff).length;
+        return total + stories.filter((story) => story && getStoryCreatedMs(story) > cutoff).length;
     }, 0);
     return ownStories + friendStories;
 }
@@ -7161,6 +7359,28 @@ function getMobileStoriesStorageKey() {
 
 function getMobileCallsSeenStorageKey() {
     return `${MOBILE_CALLS_SEEN_STORAGE_KEY_PREFIX}${currentUser?.uid || 'guest'}`;
+}
+
+function getMobileGroupsStorageKey() {
+    return `${MOBILE_GROUPS_STORAGE_KEY_PREFIX}${currentUser?.uid || 'guest'}`;
+}
+
+function loadMobileGroups() {
+    try {
+        const raw = localStorage.getItem(getMobileGroupsStorageKey());
+        const groups = raw ? JSON.parse(raw) : [];
+        return Array.isArray(groups) ? groups.filter((group) => group?.uid && group?.name) : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function saveMobileGroups(groups) {
+    try {
+        localStorage.setItem(getMobileGroupsStorageKey(), JSON.stringify(groups.slice(0, 50)));
+    } catch (error) {
+        console.warn('Não foi possível salvar o grupo local.', error);
+    }
 }
 
 function getLastSeenCallsAt() {
@@ -7186,12 +7406,20 @@ function loadMobileStories() {
         const cutoff = Date.now() - 24 * 60 * 60 * 1000;
         const unique = new Map();
         (Array.isArray(stories) ? stories : []).forEach((story) => {
-            if (story && story.createdAt > cutoff) unique.set(story.id || `${story.createdAt}-${story.text || story.name || ''}`, story);
+            const createdMs = getStoryCreatedMs(story);
+            if (story && createdMs > cutoff) {
+                unique.set(story.id || `${createdMs}-${story.text || story.name || ''}`, {
+                    ...story,
+                    createdAt: createdMs
+                });
+            }
         });
-        return Array.from(unique.values()).sort((a, b) => b.createdAt - a.createdAt);
+        return Array.from(unique.values()).sort((a, b) => getStoryCreatedMs(b) - getStoryCreatedMs(a));
     } catch (error) {
         const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-        return profileStories.filter((story) => story && story.createdAt > cutoff);
+        return profileStories
+            .filter((story) => story && getStoryCreatedMs(story) > cutoff)
+            .map((story) => ({ ...story, createdAt: getStoryCreatedMs(story) }));
     }
 }
 
@@ -7212,6 +7440,9 @@ function addMobileStory(story) {
     };
     stories.unshift(nextStory);
     saveMobileStories(stories);
+    if (currentUserProfile) {
+        currentUserProfile.stories = stories.slice(0, 12);
+    }
     if (currentUser) {
         db.collection('users').doc(currentUser.uid).set({
             stories: stories.slice(0, 12),
@@ -7221,6 +7452,54 @@ function addMobileStory(story) {
         });
     }
     renderMobileCompanionScreens();
+    setMobileHomeView('status');
+    openMobileStoryViewer(nextStory, currentUserProfile || { name: 'Meu status' });
+}
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result || '');
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function createStoryMediaPayload(file) {
+    if (!file) return null;
+    if (file.type.startsWith('image/')) {
+        const originalDataUrl = await readFileAsDataUrl(file);
+        const img = await loadImageFromDataUrl(originalDataUrl);
+        const maxSize = 960;
+        let { width, height } = img;
+        if (width > height && width > maxSize) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+        } else if (height >= width && height > maxSize) {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        return {
+            type: 'media',
+            name: file.name || `story_${Date.now()}.jpg`,
+            mediaType: 'image/jpeg',
+            dataUrl: canvas.toDataURL('image/jpeg', 0.74)
+        };
+    }
+    if (file.size > 2 * 1024 * 1024) {
+        throw new Error('VIDEO_TOO_LARGE');
+    }
+    return {
+        type: 'media',
+        name: file.name || `story_${Date.now()}.${getVideoFileExtension(file.type)}`,
+        mediaType: file.type || 'video/webm',
+        dataUrl: await readFileAsDataUrl(file)
+    };
 }
 
 function buildMobileAvatar(user, size = 56) {
@@ -7264,6 +7543,35 @@ function renderMobileContacts(friends) {
     });
 }
 
+function getStoryCreatedMs(story) {
+    const date = timestampToDate(story?.createdAt);
+    if (date) return date.getTime();
+    const value = Number(story?.createdAt || 0);
+    return Number.isFinite(value) ? value : 0;
+}
+
+function formatMobileRelativeTime(value) {
+    const date = timestampToDate(value) || new Date(Number(value) || Date.now());
+    const ms = date.getTime();
+    if (!Number.isFinite(ms)) return '';
+    const diff = Math.max(0, Date.now() - ms);
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    if (diff < minute) return 'Agora';
+    if (diff < hour) return `ha ${Math.max(1, Math.floor(diff / minute))} minutos`;
+    if (diff < day) return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    if (diff < 2 * day) return `Ontem ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+}
+
+function getRecentStoriesForUser(user) {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return (Array.isArray(user?.stories) ? user.stories : [])
+        .filter((story) => story && getStoryCreatedMs(story) > cutoff)
+        .sort((a, b) => getStoryCreatedMs(b) - getStoryCreatedMs(a));
+}
+
 function renderMobileStatus(friends) {
     if (!mobileStatusList) return;
     mobileStatusList.innerHTML = '';
@@ -7275,6 +7583,14 @@ function renderMobileStatus(friends) {
     selfText.className = 'mobile-status-text';
     selfText.innerHTML = `<strong>Meu status</strong><span>${ownStories.length ? 'Agora' : 'Toque nos botões para adicionar'}</span>`;
     selfItem.appendChild(selfText);
+    selfItem.addEventListener('click', () => {
+        const stories = loadMobileStories();
+        if (stories.length) {
+            openMobileStoryViewer(stories[0], currentUserProfile || { name: 'Meu status' });
+        } else if (mobileStatusText) {
+            mobileStatusText.click();
+        }
+    });
     mobileStatusList.appendChild(selfItem);
 
     ownStories.forEach((story) => {
@@ -7289,6 +7605,7 @@ function renderMobileStatus(friends) {
         time.textContent = 'Disponível por 24 horas';
         text.append(title, time);
         item.appendChild(text);
+        item.addEventListener('click', () => openMobileStoryViewer(story, currentUserProfile || { name: 'Meu status' }));
         mobileStatusList.appendChild(item);
     });
 
@@ -7297,7 +7614,20 @@ function renderMobileStatus(friends) {
     label.textContent = 'Atualizações recentes';
     mobileStatusList.appendChild(label);
 
-    friends.filter((friend) => !currentUser || friend.uid !== currentUser.uid).slice(0, 12).forEach((friend, index) => {
+    const recentFriendStories = friends
+        .filter((friend) => !currentUser || friend.uid !== currentUser.uid)
+        .map((friend) => ({ friend, stories: getRecentStoriesForUser(friend) }))
+        .filter((entry) => entry.stories.length > 0);
+
+    if (recentFriendStories.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'mobile-list-empty';
+        empty.textContent = 'Nenhum story recente.';
+        mobileStatusList.appendChild(empty);
+        return;
+    }
+
+    recentFriendStories.slice(0, 20).forEach(({ friend, stories }) => {
         const item = document.createElement('li');
         item.className = 'mobile-status-item has-ring';
         item.appendChild(buildMobileAvatar(friend, 58));
@@ -7306,17 +7636,151 @@ function renderMobileStatus(friends) {
         const name = document.createElement('strong');
         name.textContent = getFriendDisplayName(friend);
         const time = document.createElement('span');
-        const minutes = [7, 17, 24, 38, 55][index % 5];
+        time.textContent = formatMobileRelativeTime(stories[0].createdAt);
+        const minutes = '';
         time.textContent = `há ${minutes} minutos`;
+        time.textContent = formatMobileRelativeTime(stories[0].createdAt);
         text.append(name, time);
         item.appendChild(text);
+        item.addEventListener('click', () => openMobileStoryViewer(stories[0], friend));
         mobileStatusList.appendChild(item);
     });
+}
+
+function openMobileStoryViewer(story, owner = {}) {
+    if (!mobileStoryViewer || !mobileStoryContent || !story) return;
+    const ownerName = getFriendDisplayName(owner);
+    const createdAt = timestampToDate(story.createdAt) || new Date(story.createdAt || Date.now());
+    const time = `Hoje ${createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    const ownerInitial = escapeHtml((ownerName || 'S').charAt(0).toUpperCase());
+    const ownerPhoto = getSafePhotoData(owner.photoData) || getSafePhotoUrl(owner.photoURL) || '';
+    const avatar = ownerPhoto
+        ? `<img src="${escapeHtml(ownerPhoto)}" alt="">`
+        : `<span>${ownerInitial}</span>`;
+    let content = '';
+    if (story.type === 'media' && story.dataUrl) {
+        content = String(story.mediaType || '').startsWith('video/')
+            ? `<video src="${story.dataUrl}" controls autoplay playsinline></video>`
+            : `<img src="${story.dataUrl}" alt="Story">`;
+    } else {
+        content = `<div class="mobile-story-text">${escapeHtml(story.text || ownerName || 'Story')}</div>`;
+    }
+    mobileStoryContent.innerHTML = `
+        <div class="mobile-story-progress"><span></span><span></span><span></span></div>
+        <div class="mobile-story-header">
+            <div class="mobile-story-owner-avatar">${avatar}</div>
+            <div class="mobile-story-owner">
+                <strong>${escapeHtml(ownerName)}</strong>
+                <span>${time}</span>
+            </div>
+            <button class="mobile-story-menu" type="button" aria-label="Menu">&#8942;</button>
+        </div>
+        <div class="mobile-story-body">${content}</div>
+        <div class="mobile-story-reply">
+            <input type="text" placeholder="Responder">
+            <button type="button" aria-label="Reagir com amor">&#128525;</button>
+            <button type="button" aria-label="Reagir com riso">&#128514;</button>
+            <button type="button" aria-label="Reagir com surpresa">&#128558;</button>
+            <button class="mobile-story-round" type="button" aria-label="Compartilhar">&#8644;</button>
+            <button class="mobile-story-round" type="button" aria-label="Favoritar">&#9825;</button>
+        </div>
+    `;
+    mobileStoryViewer.classList.remove('hidden');
+    const replyInput = mobileStoryContent.querySelector('.mobile-story-reply input');
+    if (replyInput) {
+        replyInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                replyInput.value = '';
+            }
+        });
+    }
+}
+
+function closeMobileStoryViewer() {
+    if (!mobileStoryViewer || !mobileStoryContent) return;
+    mobileStoryViewer.classList.add('hidden');
+    mobileStoryContent.innerHTML = '';
+}
+
+function getCallCreatedMs(call) {
+    const date = timestampToDate(call?.createdAt || call?.updatedAt);
+    return date ? date.getTime() : 0;
+}
+
+function getCallOtherUser(call) {
+    if (!currentUser || !call) return null;
+    const isCaller = call.callerId === currentUser.uid;
+    const uid = isCaller ? call.calleeId : call.callerId;
+    const cached = getCachedUserByUid(uid);
+    if (cached) return cached;
+    return {
+        uid,
+        name: isCaller ? (call.calleeName || 'Usuario') : (call.callerName || 'Usuario'),
+        photoURL: isCaller ? call.calleePhotoURL : call.callerPhotoURL,
+        photoData: isCaller ? call.calleePhotoData : call.callerPhotoData
+    };
+}
+
+function isMissedCall(call) {
+    if (!currentUser || !call) return false;
+    if (call.calleeId !== currentUser.uid) return false;
+    return ['ringing', 'rejected', 'missed', 'cancelled'].includes(String(call.status || '').toLowerCase());
 }
 
 function renderMobileCalls(friends) {
     if (!mobileCallsList) return;
     mobileCallsList.innerHTML = '';
+    const callHistory = Array.from(mobileCallHistoryById.values())
+        .filter((call) => currentUser && (call.callerId === currentUser.uid || call.calleeId === currentUser.uid))
+        .sort((a, b) => getCallCreatedMs(b) - getCallCreatedMs(a));
+    const callableFriends = friends.filter((friend) => !friend.isLocalGroup && (!currentUser || friend.uid !== currentUser.uid));
+    const favoriteContact = getCallOtherUser(callHistory[0]) || callableFriends[0];
+    if (mobileCallFavorite && favoriteContact) {
+        const slot = mobileCallFavorite.querySelector('span');
+        if (slot) {
+            slot.innerHTML = '';
+            slot.appendChild(buildMobileAvatar(favoriteContact, 58));
+        }
+        mobileCallFavorite.onclick = () => selectUser(favoriteContact);
+    }
+    if (callHistory.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'mobile-list-empty';
+        empty.textContent = 'Nenhuma ligacao recente.';
+        mobileCallsList.appendChild(empty);
+        return;
+    }
+    callHistory.slice(0, 40).forEach((call) => {
+        const friend = getCallOtherUser(call);
+        if (!friend?.uid) return;
+        const outgoing = call.callerId === currentUser.uid;
+        const missed = isMissedCall(call);
+        const item = document.createElement('li');
+        item.className = `mobile-call-item ${missed ? 'missed' : ''}`;
+        item.appendChild(buildMobileAvatar(friend, 52));
+        const text = document.createElement('div');
+        text.className = 'mobile-call-text';
+        const name = document.createElement('strong');
+        name.textContent = getFriendDisplayName(friend);
+        const meta = document.createElement('span');
+        meta.className = outgoing ? 'mobile-call-outgoing' : (missed ? 'mobile-call-missed' : 'mobile-call-incoming');
+        meta.textContent = `${outgoing ? '↗' : '↙'} ${formatMobileRelativeTime(call.createdAt || call.updatedAt)}`;
+        text.append(name, meta);
+        const callButton = document.createElement('button');
+        callButton.className = 'mobile-inline-call';
+        callButton.type = 'button';
+        callButton.innerHTML = '&#128222;';
+        callButton.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            await selectUser(friend);
+            if (btnCall && !btnCall.disabled) btnCall.click();
+        });
+        item.append(text, callButton);
+        item.addEventListener('click', () => selectUser(friend));
+        mobileCallsList.appendChild(item);
+    });
+    return;
     const callable = friends.filter((friend) => !currentUser || friend.uid !== currentUser.uid);
     const favorite = callable[0];
     if (mobileCallFavorite && favorite) {
@@ -7358,6 +7822,114 @@ function renderMobileCalls(friends) {
         item.addEventListener('click', () => selectUser(friend));
         mobileCallsList.appendChild(item);
     });
+}
+
+function openMobileAddContactModal() {
+    if (!mobileAddContactModal) return;
+    mobileAddContactModal.classList.add('show');
+    if (mobileAddContactInput) {
+        mobileAddContactInput.value = '';
+        setTimeout(() => mobileAddContactInput.focus(), 50);
+    }
+}
+
+function closeMobileAddContactModal() {
+    if (!mobileAddContactModal) return;
+    mobileAddContactModal.classList.remove('show');
+}
+
+async function confirmMobileAddContact() {
+    const identifier = mobileAddContactInput ? mobileAddContactInput.value.trim() : '';
+    if (!identifier) {
+        alert('Informe o @apelido ou e-mail do amigo.');
+        return;
+    }
+    await addFriendByEmail(identifier);
+    closeMobileAddContactModal();
+}
+
+function getGroupCandidateFriends() {
+    return getVisibleFriendUsers().filter((friend) => !friend.isLocalGroup && (!currentUser || friend.uid !== currentUser.uid));
+}
+
+function openMobileNewGroupModal() {
+    if (!mobileNewGroupModal || !mobileNewGroupMembers) return;
+    pendingMobileGroupMemberIds = new Set();
+    if (mobileNewGroupName) mobileNewGroupName.value = '';
+    mobileNewGroupMembers.innerHTML = '';
+    const friends = getGroupCandidateFriends();
+    if (!friends.length) {
+        const empty = document.createElement('li');
+        empty.className = 'mobile-list-empty';
+        empty.textContent = 'Adicione amigos antes de criar um grupo.';
+        mobileNewGroupMembers.appendChild(empty);
+    } else {
+        friends.forEach((friend) => {
+            const item = document.createElement('li');
+            item.className = 'share-message-friend-item';
+            item.appendChild(buildMobileAvatar(friend, 42));
+            const info = document.createElement('div');
+            info.className = 'share-message-friend-info';
+            info.innerHTML = `<strong>${escapeHtml(getFriendDisplayName(friend))}</strong><small>${escapeHtml(getUserTagValue(friend) || friend.email || '')}</small>`;
+            const check = document.createElement('span');
+            check.className = 'share-message-friend-check';
+            item.append(info, check);
+            item.addEventListener('click', () => {
+                if (pendingMobileGroupMemberIds.has(friend.uid)) {
+                    pendingMobileGroupMemberIds.delete(friend.uid);
+                    item.classList.remove('selected');
+                } else {
+                    pendingMobileGroupMemberIds.add(friend.uid);
+                    item.classList.add('selected');
+                }
+            });
+            mobileNewGroupMembers.appendChild(item);
+        });
+    }
+    mobileNewGroupModal.classList.add('show');
+    if (mobileNewGroupName) setTimeout(() => mobileNewGroupName.focus(), 50);
+}
+
+function closeMobileNewGroupModal() {
+    if (!mobileNewGroupModal) return;
+    mobileNewGroupModal.classList.remove('show');
+    pendingMobileGroupMemberIds = new Set();
+}
+
+async function createMobileGroup() {
+    const name = mobileNewGroupName ? mobileNewGroupName.value.trim() : '';
+    if (!name) {
+        alert('Informe o nome do grupo.');
+        return;
+    }
+    if (pendingMobileGroupMemberIds.size === 0) {
+        alert('Selecione pelo menos um participante.');
+        return;
+    }
+    const group = {
+        uid: `group_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        name,
+        memberIds: Array.from(pendingMobileGroupMemberIds),
+        createdAt: Date.now(),
+        isLocalGroup: true
+    };
+    const groups = loadMobileGroups();
+    groups.unshift(group);
+    saveMobileGroups(groups);
+    try {
+        await db.collection('conversations').doc(group.uid).set({
+            type: 'group',
+            name,
+            memberIds: [currentUser.uid, ...group.memberIds],
+            createdBy: currentUser.uid,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    } catch (error) {
+        console.warn('Grupo salvo localmente, mas não publicado no Firestore.', error);
+    }
+    closeMobileNewGroupModal();
+    renderFriendUsers();
 }
 
 function setDesktopSection(section) {
@@ -7682,6 +8254,7 @@ function getFriendAlias(friendId) {
 }
 
 function getFriendDisplayName(user) {
+    if (user?.isLocalGroup) return user.name || 'Grupo';
     if (!user) return 'Usuário';
     if (currentUser && user.uid === currentUser.uid) {
         const baseName = user.name || currentUserProfile?.name || currentUser.displayName || 'Usuário';
@@ -8098,6 +8671,8 @@ async function loadMessages(otherUid) {
 
 // Gerar ID da conversa
 function getConversationId(uid1, uid2) {
+    if (String(uid1 || '').startsWith('group_')) return uid1;
+    if (String(uid2 || '').startsWith('group_')) return uid2;
     return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
 }
 
@@ -8125,6 +8700,47 @@ async function markMessagesAsRead(conversationId) {
     });
     
     await batch.commit();
+}
+
+async function markAllVisibleChatsAsRead() {
+    if (!currentUser) return;
+    const friends = getVisibleFriendUsers().filter((friend) => {
+        if (!friend?.uid || friend.isLocalGroup) return false;
+        if (friend.uid === currentUser.uid) return false;
+        return (unreadMessageCountByFriendId.get(friend.uid) || 0) > 0;
+    });
+    if (!friends.length) {
+        updateMobileNavBadges();
+        return;
+    }
+
+    for (const friend of friends) {
+        const conversationId = getConversationId(currentUser.uid, friend.uid);
+        const snapshot = await db.collection('conversations')
+            .doc(conversationId)
+            .collection('messages')
+            .where('senderId', '==', friend.uid)
+            .where('receiverId', '==', currentUser.uid)
+            .where('read', '==', false)
+            .get();
+        if (snapshot.empty) {
+            unreadMessageCountByFriendId.set(friend.uid, 0);
+            continue;
+        }
+        const batch = db.batch();
+        snapshot.forEach((doc) => {
+            batch.update(doc.ref, {
+                read: true,
+                readAt: firebase.firestore.FieldValue.serverTimestamp(),
+                delivered: true,
+                deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        });
+        await batch.commit();
+        unreadMessageCountByFriendId.set(friend.uid, 0);
+    }
+    renderFriendUsers();
+    updateMobileNavBadges();
 }
 
 function updateMessageDeliveryStatus(conversationId, messages) {
@@ -10398,15 +11014,16 @@ function updateCallButtonsAvailability() {
     const hasFriend = !!selectedFriendData;
     const isSelf = hasFriend && currentUser && selectedFriendData.uid === currentUser.uid;
     const isBlocked = hasFriend && isFriendBlocked(selectedFriendData.uid);
-    const disabled = !hasFriend || isBlocked || isSelf;
+    const isGroup = hasFriend && selectedFriendData.isLocalGroup;
+    const disabled = !hasFriend || isBlocked || isSelf || isGroup;
 
     if (btnCall) {
         btnCall.disabled = disabled;
-        btnCall.classList.toggle('hidden', isSelf);
+        btnCall.classList.toggle('hidden', isSelf || isGroup);
     }
     if (btnVideoCall) {
         btnVideoCall.disabled = disabled;
-        btnVideoCall.classList.toggle('hidden', isSelf);
+        btnVideoCall.classList.toggle('hidden', isSelf || isGroup);
     }
 }
 
@@ -10659,13 +11276,14 @@ function openAttachInput(input) {
     input.click();
 }
 
-async function openCameraModal(preferredMode = '') {
+async function openCameraModal(preferredMode = '', target = 'chat') {
     if (!cameraModal) return;
-    if (!selectedUserId) {
+    cameraCaptureTarget = target === 'story' ? 'story' : 'chat';
+    if (cameraCaptureTarget === 'chat' && !selectedUserId) {
         alert('Selecione um usuário para conversar.');
         return;
     }
-    if (isFriendBlocked(selectedUserId)) {
+    if (cameraCaptureTarget === 'chat' && isFriendBlocked(selectedUserId)) {
         alert('Você bloqueou este usuário.');
         return;
     }
@@ -10679,8 +11297,11 @@ async function openCameraModal(preferredMode = '') {
     if (cameraStatus) cameraStatus.textContent = 'Abrindo câmera...';
     await startCameraStream();
     if (!cameraStream && preferredMode) {
+        const fallbackTarget = cameraCaptureTarget;
         closeCameraModal();
-        if (preferredMode === 'photo') {
+        if (fallbackTarget === 'story' && mobileStatusUpload) {
+            mobileStatusUpload.click();
+        } else if (preferredMode === 'photo') {
             openAttachInput(fileUploadCameraPhoto || fileUpload);
         } else if (preferredMode === 'video') {
             openAttachInput(fileUploadCameraVideo || fileUpload);
@@ -10701,6 +11322,7 @@ function resetCameraState() {
     cameraRecorderChunks = [];
     cancelCameraRecording = false;
     isCameraTorchOn = false;
+    cameraCaptureTarget = 'chat';
     syncCameraActionIcons();
     updateCameraFlashButton();
 }
@@ -10855,8 +11477,24 @@ async function capturePhotoFromCamera() {
     canvas.height = videoHeight;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(cameraPreview, 0, 0, videoWidth, videoHeight);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', cameraCaptureTarget === 'story' ? 0.72 : 0.9));
     if (!blob) return;
+    if (cameraCaptureTarget === 'story') {
+        try {
+            const dataUrl = await blobToDataUrl(blob);
+            addMobileStory({
+                type: 'media',
+                name: `story_${Date.now()}.jpg`,
+                mediaType: 'image/jpeg',
+                dataUrl
+            });
+        } catch (error) {
+            console.warn('Falha ao criar story com a camera.', error);
+            alert('Nao foi possivel criar o story com a camera.');
+        }
+        closeCameraModal();
+        return;
+    }
     const file = new File([blob], `foto_${Date.now()}.jpg`, { type: 'image/jpeg' });
     await handleChatFile(file);
     closeCameraModal();
@@ -10897,6 +11535,27 @@ async function toggleCameraRecording() {
             return;
         }
         if (!blob.size) return;
+        if (cameraCaptureTarget === 'story') {
+            if (blob.size > 2 * 1024 * 1024) {
+                alert('Video muito grande para story. Grave um video mais curto.');
+                closeCameraModal();
+                return;
+            }
+            try {
+                const dataUrl = await blobToDataUrl(blob);
+                addMobileStory({
+                    type: 'media',
+                    name: `story_${Date.now()}.${getVideoFileExtension(chosenMime)}`,
+                    mediaType: blob.type || chosenMime,
+                    dataUrl
+                });
+            } catch (error) {
+                console.warn('Falha ao criar story com video da camera.', error);
+                alert('Nao foi possivel criar o story com o video.');
+            }
+            closeCameraModal();
+            return;
+        }
         const extension = getVideoFileExtension(chosenMime);
         const file = new File([blob], `video_${Date.now()}.${extension}`, { type: blob.type });
         try {
@@ -11328,6 +11987,18 @@ function showAndroidExitHint() {
 }
 
 function handleAndroidBackPress() {
+    if (mobileStoryViewer && !mobileStoryViewer.classList.contains('hidden')) {
+        closeMobileStoryViewer();
+        return true;
+    }
+    if (mobileAddContactModal && mobileAddContactModal.classList.contains('show')) {
+        closeMobileAddContactModal();
+        return true;
+    }
+    if (mobileNewGroupModal && mobileNewGroupModal.classList.contains('show')) {
+        closeMobileNewGroupModal();
+        return true;
+    }
     if (mobileOptionsMenu && !mobileOptionsMenu.classList.contains('hidden')) {
         mobileOptionsMenu.classList.add('hidden');
         return true;
