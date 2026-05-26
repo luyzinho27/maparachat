@@ -253,10 +253,6 @@
                     <span>Novo contato</span>
                     <span class="mobile-qr-icon">&#9638;</span>
                 </button>
-                <button id="mobile-new-community" class="mobile-quick-action" type="button">
-                    <span class="mobile-quick-icon">&#128106;</span>
-                    <span>Nova comunidade</span>
-                </button>
             </div>
             <h3 class="mobile-section-label">Contatos no MaparaChat</h3>
             <ul id="mobile-contacts-list" class="mobile-contacts-list"></ul>
@@ -494,11 +490,11 @@
                 <strong>Conversas</strong>
             </button>
             <button class="mobile-nav-item" type="button" data-mobile-view="status">
-                <span class="mobile-nav-icon">&#128172;<small></small></span>
+                <span class="mobile-nav-icon">&#128172;<small id="mobile-status-badge" class="hidden">0</small></span>
                 <strong>Stories</strong>
             </button>
             <button class="mobile-nav-item" type="button" data-mobile-view="calls">
-                <span class="mobile-nav-icon">&#128222;</span>
+                <span class="mobile-nav-icon">&#128222;<small id="mobile-calls-badge" class="hidden">0</small></span>
                 <strong>Ligações</strong>
             </button>
         </nav>
@@ -569,6 +565,32 @@
             <h3>Sobre</h3>
             <div id="about-content" class="about-content"></div>
         </div>
+    </div>
+
+    <div id="mobile-add-contact-modal" class="modal">
+        <div class="modal-content mobile-action-modal-content">
+            <span id="mobile-add-contact-close" class="close-modal">&times;</span>
+            <h3>Novo contato</h3>
+            <p>Adicione um amigo pelo @apelido ou pelo e-mail cadastrado.</p>
+            <input id="mobile-add-contact-input" class="modal-input" type="text" placeholder="@apelido ou e-mail">
+            <button id="mobile-add-contact-confirm" class="btn-primary" type="button">Adicionar</button>
+        </div>
+    </div>
+
+    <div id="mobile-new-group-modal" class="modal">
+        <div class="modal-content mobile-action-modal-content">
+            <span id="mobile-new-group-close" class="close-modal">&times;</span>
+            <h3>Novo grupo</h3>
+            <p>Defina um nome e selecione os participantes.</p>
+            <input id="mobile-new-group-name" class="modal-input" type="text" placeholder="Nome do grupo">
+            <ul id="mobile-new-group-members" class="share-message-friends-list mobile-group-members"></ul>
+            <button id="mobile-new-group-create" class="btn-primary" type="button">Criar grupo</button>
+        </div>
+    </div>
+
+    <div id="mobile-story-viewer" class="mobile-story-viewer hidden">
+        <button id="mobile-story-close" class="mobile-story-close" type="button" aria-label="Voltar">&#8592;</button>
+        <div id="mobile-story-content" class="mobile-story-content"></div>
     </div>
 
     <div id="user-tag-match-modal" class="modal">
