@@ -506,6 +506,7 @@ let ringtoneContext = null;
 let touchStartX = 0;
 let touchStartY = 0;
 let touchTracking = false;
+let touchStartTarget = null;
 let callCountdownInterval = null;
 let callCountdownRemaining = 0;
 let callCountdownBaseStatus = '';
@@ -6999,6 +7000,7 @@ document.addEventListener('touchstart', (event) => {
     touchTracking = true;
     touchStartX = event.touches[0].clientX;
     touchStartY = event.touches[0].clientY;
+    touchStartTarget = event.target;
 });
 
 document.addEventListener('touchend', (event) => {
@@ -7019,11 +7021,27 @@ document.addEventListener('touchend', (event) => {
 
     if (deltaX > swipeDistance && fromLeftEdge && !sidebarIsOpen) {
         setSidebarOpen(true);
+        touchStartTarget = null;
+        return;
     }
 
     if (deltaX < -swipeDistance && sidebarIsOpen) {
         setSidebarOpen(false);
+        touchStartTarget = null;
+        return;
     }
+
+    const isAndroidHome = document.body.classList.contains('android-app') && app && !app.classList.contains('mobile-chat-open');
+    const startedOnControl = touchStartTarget?.closest?.('button, input, textarea, select, .modal, .mobile-story-viewer, .settings-menu, .mobile-options-menu');
+    if (isAndroidHome && !startedOnControl && Math.abs(deltaX) > 90) {
+        const order = ['chats', 'status', 'calls'];
+        const currentIndex = Math.max(0, order.indexOf(mobileActiveView));
+        const nextIndex = deltaX < 0 ? Math.min(order.length - 1, currentIndex + 1) : Math.max(0, currentIndex - 1);
+        if (nextIndex !== currentIndex) {
+            setMobileHomeView(order[nextIndex]);
+        }
+    }
+    touchStartTarget = null;
 });
 
 if (adminTabs) {
@@ -7989,6 +8007,36 @@ function renderDesktopStatusList(friends) {
 function renderDesktopCallsList(friends) {
     if (!usersList) return;
     usersList.innerHTML = '';
+    const callHistory = Array.from(mobileCallHistoryById.values())
+        .filter((call) => currentUser && (call.callerId === currentUser.uid || call.calleeId === currentUser.uid))
+        .sort((a, b) => getCallCreatedMs(b) - getCallCreatedMs(a));
+    if (callHistory.length > 0) {
+        callHistory.slice(0, 40).forEach((call) => {
+            const friend = getCallOtherUser(call);
+            if (!friend?.uid) return;
+            const outgoing = call.callerId === currentUser.uid;
+            const missed = isMissedCall(call);
+            const li = document.createElement('li');
+            li.className = 'user-item desktop-call-item';
+            li.appendChild(buildMobileAvatar(friend, 45));
+            const info = document.createElement('div');
+            info.className = 'user-item-info';
+            info.innerHTML = `<h4>${getFriendDisplayName(friend)}</h4><p>${missed ? 'Ligacao perdida' : (outgoing ? 'Ligacao feita' : 'Ligacao recebida')} - ${formatMobileRelativeTime(call.createdAt || call.updatedAt)}</p>`;
+            const callButton = document.createElement('button');
+            callButton.className = 'desktop-call-action';
+            callButton.type = 'button';
+            callButton.textContent = 'Ligar';
+            callButton.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                await selectUser(friend);
+                if (btnCall && !btnCall.disabled) btnCall.click();
+            });
+            li.append(info, callButton);
+            li.addEventListener('click', () => selectUser(friend));
+            usersList.appendChild(li);
+        });
+        return;
+    }
     const callable = friends.filter((friend) => !currentUser || friend.uid !== currentUser.uid);
     if (callable.length === 0) {
         const empty = document.createElement('li');
@@ -8026,6 +8074,8 @@ function setMobileHomeView(view) {
         app.classList.remove('mobile-chat-open');
     }
     if (mobileContactsScreen) mobileContactsScreen.classList.add('hidden');
+    if (mobileStatusScreen) mobileStatusScreen.classList.toggle('hidden', mobileActiveView !== 'status');
+    if (mobileCallsScreen) mobileCallsScreen.classList.toggle('hidden', mobileActiveView !== 'calls');
     if (mobileBottomNav) {
         mobileBottomNav.querySelectorAll('.mobile-nav-item').forEach((button) => {
             button.classList.toggle('active', button.dataset.mobileView === mobileActiveView);
@@ -8041,6 +8091,8 @@ function openMobileContactsScreen() {
     if (!app || !mobileContactsScreen) return;
     app.dataset.mobileView = 'contacts';
     app.classList.remove('mobile-chat-open');
+    if (mobileStatusScreen) mobileStatusScreen.classList.add('hidden');
+    if (mobileCallsScreen) mobileCallsScreen.classList.add('hidden');
     mobileContactsScreen.classList.remove('hidden');
     renderMobileCompanionScreens();
 }
